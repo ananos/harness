@@ -1,0 +1,19 @@
+#!/bin/bash
+# Global core.hooksPath dispatcher. Every hook name in this directory is a
+# symlink to this file. It runs the harness check for that hook, if one
+# exists, then chains to the repository's own hook so a global hooksPath
+# does not silently disable per-repo hooks.
+set -euo pipefail
+
+name=$(basename "$0")
+here=$(cd "$(dirname "$0")" && pwd -P)
+check="$here/../checks/$name"
+
+if [ -x "$check" ]; then
+	"$check" "$@"
+fi
+
+common=$(git rev-parse --git-common-dir 2>/dev/null || true)
+if [ -n "$common" ] && [ -x "$common/hooks/$name" ]; then
+	exec "$common/hooks/$name" "$@"
+fi
