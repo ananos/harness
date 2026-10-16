@@ -69,8 +69,19 @@ git config harness.subjectStyle off         # trailers only
 
 | Rule | Enforced by |
 | :- | :- |
-| a finding needs a file, a line and a failing scenario | `workflows/drive-pr.js` schema |
-| every blocking finding is checked by a skeptic before it costs a fix round | `workflows/drive-pr.js` |
-| false claims in messages, docs and comments are findings | `workflows/drive-pr.js` (claims lens) |
-| provenance, token-scope and permission calls go to a person | `workflows/drive-pr.js` (`forPerson`) |
-| review and act on people only, never bots | prose only (watchdogs) |
+| a finding needs a file, a line and a failing scenario | `workflows/verify.js` schema |
+| every blocking finding is checked by a skeptic before it costs a fix round | `workflows/verify.js` |
+| every acceptance criterion has a passing test | `workflows/verify.js` (acceptance lens) |
+| false claims in messages, docs and comments are findings | `workflows/verify.js` (claims lens) |
+| provenance, token-scope and permission calls go to a person | `workflows/verify.js` (`forPerson`) |
+| review and act on people only, never bots | `workflows/triage.js` (users only); prose for watchdogs |
+
+## Workflows
+
+| Rule | Enforced by |
+| :- | :- |
+| `/build` and `/verify` never push or post | prompts, and the guard when installed |
+| running `/ship` is the ack to push and open a draft PR | `workflows/ship.js` |
+| `/ship` never force-pushes, merges, marks ready or adds reviewers | `workflows/ship.js`, `tests/workflows/test_ship_triage.mjs` |
+| `/triage` posts nothing; `apply` only adds existing labels | `workflows/triage.js`, its test |
+| every stage's model is asserted | `tests/workflows/` |

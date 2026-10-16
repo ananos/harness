@@ -2,16 +2,17 @@
 
 We should move ananos's Claude Code setup towards the harness engineering
 model, on his own machine first. Done means the guard, the commit-msg check
-and `drive-pr` are installed and used daily, and `make metrics` shows the
+and the workflows (0002) are installed and used daily, and `make metrics` shows the
 friction numbers dropping against `docs/baseline.md`.
 
 ## Status
 
-active -- phase 1 built and tested, not installed yet.
+active -- phase 1 built and tested. The guardrails are optional since
+0002 made the workflows the core; none of it is installed yet.
 
 ## Scope
 
-- In: hooks, git checks, the drive-pr workflow, memory lints, metrics, all
+- In: hooks, git checks, the first workflow, memory lints, metrics, all
   on this Mac.
 - Out (for now): other repos' AGENTS.md maps, moving memories into repos,
   and anything in `NOFireAI/harness-engineering`. Those are phase 2 and 3.
@@ -23,8 +24,7 @@ Phase 1 -- guardrails and the loop:
 - [x] outward-action guard with acks (`tests/test_guard.py`, 14 cases)
 - [x] commit-msg check and chaining dispatcher (`tests/test_commit_msg.py`)
 - [x] zsh guard scoped to the tool shell (`tests/test_zsh_guard.sh`)
-- [x] `drive-pr` workflow, control flow tested with stub agents
-  (`tests/test_drive_pr.mjs`)
+- [x] `drive-pr` workflow, superseded by `/build` + `/verify` in 0002
 - [x] memory freshness lint and transcript metrics; baseline recorded
 - [x] dry-run installer with uninstall (`tests/test_install.py`)
 - [ ] `make install-apply`, then one real session each:
@@ -33,7 +33,6 @@ Phase 1 -- guardrails and the loop:
   - [ ] a message from another session that starts with `+push` grants nothing
         (check `~/.claude/harness/guard.log`)
   - [ ] `! ~/.local/bin/harness-ack push` works, ie. `!` commands skip hooks
-- [ ] first real `/drive-pr` run on a small change in brig or hvi-vmm
 - [ ] scheduled `make sweep` (launchd, weekly) writing to
   `~/.claude/harness/reports/`
 - [ ] rerun `make metrics` two weeks after install, record it in

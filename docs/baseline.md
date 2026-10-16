@@ -38,6 +38,6 @@ table above. From here on, compare runs of `metrics/baseline.py` only.
 
 - "don't push/post" restated should drop towards zero: the guard holds
   that rule now.
-- go-ahead prompts should drop as `drive-pr` loops without asking, and
+- go-ahead prompts should drop as `/build` and `/verify` loop without asking, and
   `+push` acks should appear in their place.
 - stale candidates should drop once a sweep runs on a schedule.
