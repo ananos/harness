@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""The repo gate. Prints JSON: {"pass": bool, "checks": [...]}, one entry
+per check with its output tail and a remediation line. Exit 1 on failure.
+"""
+import glob
+import json
+import os
+import re
+import subprocess
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+MAP_LINES = 120
+
+
+def sh(name, argv, remediation):
+    p = subprocess.run(argv, cwd=ROOT, stdout=subprocess.PIPE,
+                       stderr=subprocess.STDOUT, universal_newlines=True)
+    return {"name": name, "pass": p.returncode == 0,
+            "output": p.stdout[-2000:], "remediation": remediation}
+
+
+def agents_map():
+    path = os.path.join(ROOT, "AGENTS.md")
+    text = open(path).read()
+    problems = []
+    n = text.count("\n")
+    if n > MAP_LINES:
+        problems.append("AGENTS.md is %d lines (map budget %d); move detail "
+                        "into docs/" % (n, MAP_LINES))
+    for ref in sorted(set(re.findall(r"`([\w./-]+/[\w./-]*|[\w-]+\.md)`",
+                                     text))):
+        if ref.startswith(("~", "/")) or "*" in ref:
+            continue
+        if not os.path.exists(os.path.join(ROOT, ref)):
+            problems.append("AGENTS.md points at missing `%s`" % ref)
+    return {"name": "agents-map", "pass": not problems,
+            "output": "\n".join(problems),
+            "remediation": "fix the map so every path it names exists"}
+
+
+def exec_plans():
+    problems = []
+    for p in glob.glob(os.path.join(ROOT, "docs", "exec-plans", "*", "*.md")):
+        t = open(p).read()
+        for section in ("## Status", "## Progress", "## Decision log"):
+            if section not in t:
+                problems.append("%s lacks %s" % (os.path.relpath(p, ROOT),
+                                                 section))
+    return {"name": "exec-plans", "pass": not problems,
+            "output": "\n".join(problems),
+            "remediation": "use docs/exec-plans/TEMPLATE.md sections"}
+
+
+def main():
+    shells = [os.path.join(ROOT, p) for p in
+              ("hooks/git/dispatch", "tests/test_zsh_guard.sh")]
+    pys = sorted(glob.glob(os.path.join(ROOT, "**", "*.py"), recursive=True))
+    pys += [os.path.join(ROOT, p) for p in
+            ("bin/gate", "bin/harness-ack", "hooks/checks/commit-msg")]
+    checks = [
+        sh("unit", [sys.executable, "-I", "-m", "unittest", "discover",
+                    "-s", "tests"], "fix the failing test or the code"),
+        sh("zsh-guard", ["bash", "tests/test_zsh_guard.sh"],
+           "see hooks/zshenv-guard.zsh"),
+        sh("drive-pr", ["node", "tests/test_drive_pr.mjs"],
+           "workflows/drive-pr.js control flow changed; update test or fix"),
+        sh("shellcheck", ["shellcheck"] + shells,
+           "fix the shellcheck finding; scripts target bash 3.2"),
+        sh("py-compile", [sys.executable, "-m", "py_compile"] + pys,
+           "syntax error; code must run on macOS python3 3.9"),
+        agents_map(),
+        exec_plans(),
+    ]
+    ok = all(c["pass"] for c in checks)
+    print(json.dumps({"pass": ok, "checks": checks}, indent=1))
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
