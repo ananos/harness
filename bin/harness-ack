@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Grant, list or revoke outward-action acks.
+
+Run it yourself with the `!` prefix inside a Claude Code session; the
+guard denies it when an agent calls it through the Bash tool.
+
+  harness-ack push|post|merge|all [N] [--ttl MIN] [--any-session]
+  harness-ack list
+  harness-ack revoke
+"""
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "hooks"))
+import guard  # noqa: E402
+
+
+def usage():
+    sys.stderr.write(__doc__)
+    return 2
+
+
+def main(argv):
+    if not argv:
+        return usage()
+    cmd = argv[0]
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID") or guard.GLOBAL
+    if "--any-session" in argv:
+        session = guard.GLOBAL
+    if cmd == "list":
+        print(json.dumps(guard.with_store(lambda s: dict(s)), indent=1))
+        return 0
+    if cmd == "revoke":
+        guard.with_store(lambda s: s.clear())
+        print("harness: all acks revoked")
+        return 0
+    if cmd not in guard.CLASSES + ("all",):
+        return usage()
+    n = 1
+    ttl = guard.ACK_TTL
+    rest = argv[1:]
+    i = 0
+    while i < len(rest):
+        if rest[i] == "--ttl":
+            ttl = int(rest[i + 1]) * 60
+            i += 2
+            continue
+        if rest[i].isdigit():
+            n = int(rest[i])
+        i += 1
+    # A grant outside a session is usable by every session: keep it short.
+    if session == guard.GLOBAL:
+        ttl = min(ttl, 600)
+    got = guard.grant(session, cmd, n, ttl)
+    guard.log({"ev": "grant", "via": "cli", "acks": list(got), "n": n,
+               "sid": session})
+    print("harness: granted %s x%d for %d min (%s)" % (
+        ",".join(got), n, ttl // 60,
+        "any session" if session == guard.GLOBAL else "session " + session))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
