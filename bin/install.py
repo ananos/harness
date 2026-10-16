@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """Install or remove the harness on this machine.
 
-Dry run by default: prints every change it would make, with a diff for
-~/.claude/settings.json. Pass --apply to make them. --uninstall reverses.
+Dry run by default: prints every change it would make. Pass --apply to
+make them. --uninstall removes every part this script owns.
 
-  install.py [--apply] [--uninstall] [--force-hooks-path]
+  install.py [--with guard,git,zsh | --all] [--apply] [--uninstall]
+             [--force-hooks-path]
 
-Changes:
-  1. ~/.claude/settings.json: guard hooks (PreToolUse, UserPromptSubmit)
-     and attribution off; a timestamped backup is written first
-  2. git config --global core.hooksPath -> hooks/git (chains to repo hooks)
-  3. ~/.zshenv: source hooks/zshenv-guard.zsh between markers
-  4. ~/.local/bin/harness-ack and ~/.claude/workflows/drive-pr.js symlinks
+Parts:
+  workflows  always: symlink workflows/*.js into ~/.claude/workflows/
+  guard      guard hooks and attribution off in ~/.claude/settings.json
+             (timestamped backup first), plus ~/.local/bin/harness-ack
+  git        git config --global core.hooksPath -> hooks/git
+  zsh        ~/.zshenv sources hooks/zshenv-guard.zsh between markers
 """
 import argparse
 import difflib
@@ -30,12 +31,30 @@ GUARD_CMD = "python3 -I '%s'" % os.path.join(ROOT, "hooks", "guard.py")
 MATCHER = "Bash|Write|Edit|MultiEdit|NotebookEdit"
 ATTRIBUTION = {"commit": "", "pr": "", "sessionUrl": False}
 BEGIN, END = "# >>> harness >>>", "# <<< harness <<<"
-LINKS = [
-    (os.path.join(ROOT, "bin", "harness-ack"),
-     os.path.join(HOME, ".local", "bin", "harness-ack")),
-    (os.path.join(ROOT, "workflows", "drive-pr.js"),
-     os.path.join(HOME, ".claude", "workflows", "drive-pr.js")),
-]
+PARTS = ("guard", "git", "zsh")
+ACK_LINK = (os.path.join(ROOT, "bin", "harness-ack"),
+            os.path.join(HOME, ".local", "bin", "harness-ack"))
+WF_DIR = os.path.join(HOME, ".claude", "workflows")
+
+
+def workflow_links():
+    src = os.path.join(ROOT, "workflows")
+    return [(os.path.join(src, f), os.path.join(WF_DIR, f))
+            for f in sorted(os.listdir(src)) if f.endswith(".js")]
+
+
+def stale_workflow_links():
+    """Links in ~/.claude/workflows that point into this repo but whose
+    target no longer exists (a renamed or deleted workflow)."""
+    out = []
+    if os.path.isdir(WF_DIR):
+        for f in os.listdir(WF_DIR):
+            p = os.path.join(WF_DIR, f)
+            if os.path.islink(p):
+                t = os.readlink(p)
+                if t.startswith(ROOT + os.sep) and not os.path.exists(t):
+                    out.append(p)
+    return out
 
 
 def ours(entry):
@@ -92,13 +111,65 @@ def main():
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--uninstall", action="store_true")
     ap.add_argument("--force-hooks-path", action="store_true")
+    ap.add_argument("--with", default="", help="comma list: guard,git,zsh")
+    ap.add_argument("--all", action="store_true")
     a = ap.parse_args()
+    want_parts = set(PARTS) if (a.all or a.uninstall) else \
+        {p for p in a.__dict__["with"].split(",") if p}
+    bad = want_parts - set(PARTS)
+    if bad:
+        ap.error("unknown part(s): %s" % ",".join(sorted(bad)))
     verb = "remove" if a.uninstall else "install"
     mode = "APPLY" if a.apply else "DRY RUN"
-    print("harness %s from %s [%s]\n" % (verb, ROOT, mode))
+    print("harness %s from %s [%s]" % (verb, ROOT, mode))
+    print("parts: workflows%s\n" % "".join(
+        "," + p for p in PARTS if p in want_parts))
     stamp = time.strftime("%Y%m%d-%H%M%S")
 
-    # 1. settings.json
+    # workflows
+    print("workflows -> %s" % WF_DIR)
+    links(workflow_links(), a)
+    for p in stale_workflow_links():
+        print("   rm stale %s" % p)
+        if a.apply:
+            os.remove(p)
+    print()
+    if "guard" in want_parts:
+        guard(a, stamp)
+    if "git" in want_parts:
+        git_part(a)
+    if "zsh" in want_parts:
+        zsh_part(a, stamp)
+
+    if not a.apply:
+        print("\nNothing changed. Rerun with --apply.")
+    else:
+        print("\nDone. Run /reload-skills in a running session to pick up "
+              "workflows; new sessions load them and the hooks.")
+    return 0
+
+
+def links(pairs, a):
+    for src, dst in pairs:
+        cur = os.path.realpath(dst) if os.path.lexists(dst) else None
+        if a.uninstall:
+            if cur == src:
+                print("   rm %s" % dst)
+                if a.apply:
+                    os.remove(dst)
+            continue
+        if cur == src:
+            print("   ok %s" % dst)
+        elif os.path.lexists(dst):
+            print("   REFUSED: %s exists and is not ours" % dst)
+        else:
+            print("   ln -s %s %s" % (src, dst))
+            if a.apply:
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                os.symlink(src, dst)
+
+
+def guard(a, stamp):
     before = open(SETTINGS).read() if os.path.exists(SETTINGS) else "{}\n"
     after_obj = merged_settings(json.loads(before), a.uninstall)
     after = json.dumps(after_obj, indent=2) + "\n"
@@ -106,7 +177,7 @@ def main():
     diff = list(difflib.unified_diff(
         norm_before.splitlines(True), after.splitlines(True),
         "settings.json (now)", "settings.json (after)"))
-    print("1. %s" % SETTINGS)
+    print("guard: %s" % SETTINGS)
     print("".join(diff) if diff else "   no change\n")
     if a.apply and diff:
         shutil.copy2(SETTINGS, "%s.bak-harness-%s" % (SETTINGS, stamp))
@@ -115,11 +186,15 @@ def main():
             f.write(after)
         os.rename(tmp, SETTINGS)
         print("   written; backup %s.bak-harness-%s\n" % (SETTINGS, stamp))
+    print("guard: harness-ack")
+    links([ACK_LINK], a)
+    print()
 
-    # 2. core.hooksPath
+
+def git_part(a):
     want = os.path.join(ROOT, "hooks", "git")
     cur = git_hooks_path()
-    print("2. git config --global core.hooksPath")
+    print("git: git config --global core.hooksPath")
     if a.uninstall:
         if cur == want:
             print("   unset (was %s)" % cur)
@@ -140,13 +215,14 @@ def main():
     print("   note: a repo that sets its own core.hooksPath (husky, "
           "pre-commit) bypasses this\n")
 
-    # 3. ~/.zshenv
+
+def zsh_part(a, stamp):
     text = open(ZSHENV).read() if os.path.exists(ZSHENV) else ""
     new = strip_block(text)
     if not a.uninstall:
         new = new.rstrip("\n") + ("\n\n" if new.strip() else "") + \
             zshenv_block()
-    print("3. %s" % ZSHENV)
+    print("zsh: %s" % ZSHENV)
     zd = list(difflib.unified_diff(text.splitlines(True),
                                    new.splitlines(True), ".zshenv (now)",
                                    ".zshenv (after)"))
@@ -156,33 +232,6 @@ def main():
             shutil.copy2(ZSHENV, "%s.bak-harness-%s" % (ZSHENV, stamp))
         with open(ZSHENV, "w") as f:
             f.write(new)
-
-    # 4. symlinks
-    print("4. symlinks")
-    for src, dst in LINKS:
-        cur = os.path.realpath(dst) if os.path.lexists(dst) else None
-        if a.uninstall:
-            if cur == src:
-                print("   rm %s" % dst)
-                if a.apply:
-                    os.remove(dst)
-            continue
-        if cur == src:
-            print("   ok %s" % dst)
-        elif os.path.lexists(dst):
-            print("   REFUSED: %s exists and is not ours" % dst)
-        else:
-            print("   ln -s %s %s" % (src, dst))
-            if a.apply:
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                os.symlink(src, dst)
-
-    if not a.apply:
-        print("\nNothing changed. Rerun with --apply.")
-    else:
-        print("\nDone. New sessions pick up the hooks; run /hooks in a "
-              "running session to reload.")
-    return 0
 
 
 if __name__ == "__main__":
