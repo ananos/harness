@@ -1,7 +1,8 @@
 # Architecture
 
-The harness has four parts. Each part installs into one place on the
-machine, and `bin/install.py` owns all of them.
+The harness has a workflow suite and three optional guardrails. Each part
+installs into one place on the machine, and `bin/install.py` owns all of
+them. Only the workflows install by default.
 
 ```
  prompt ──> UserPromptSubmit ──> guard.py ──> acks.json   (+push grants)
@@ -13,8 +14,10 @@ machine, and `bin/install.py` owns all of them.
  git commit ──> core.hooksPath=hooks/git/<name> ──> checks/<name>
                                                 └─> <repo>/.git/hooks/<name>
 
- /drive-pr ──> Scope ─> Implement ─> [Gate + 3 lenses ─> verify ─> Fix]* ─> Finalize
-                                                           stops before push
+ /build ──> Recon ─> Plan ─> Critique ─> Skeleton ─> [wave: task worktrees ─> integrate]*
+                                                    ─> /verify ─> Land   (local only)
+ /verify ──> [Gate + 4 lenses ─> skeptics ─> Fix (escalates)]*
+ /ship ──> Preflight ─> push + draft PR ─> watch CI ─> triage failures
 ```
 
 ## Guard
@@ -60,14 +63,21 @@ runs `hooks/checks/<name>` if one exists, then `exec`s the repo's own hook
 from `git rev-parse --git-common-dir`. A repo that sets its own
 `core.hooksPath` locally (husky, pre-commit) bypasses the harness.
 
-## Workflow
+## Workflows
 
-`workflows/drive-pr.js` is a Claude Code saved workflow, installed as
-`~/.claude/workflows/drive-pr.js` and invoked as `/drive-pr <task>`. It
-loops gate and review up to `maxRounds` (default 3). Every agent that can
-write is told to stay local, and the guard enforces that independently.
-It returns `ready-for-ack` with the branch, the commits and a PR body
-file, or `needs-human` with what is unresolved.
+The suite lives in `workflows/` and is described in `docs/workflows.md`.
+Two mechanics matter for how the pieces fit:
+
+- `/build` calls `/verify` with `workflow('verify', ...)`. Nesting is one
+  level deep, so `/verify` must not call another workflow.
+- Parallel task agents run with `isolation: 'worktree'`. Each one checks
+  out the current tip by sha, commits on `harness/<slug>/<task>`, and the
+  integrator cherry-picks those commits in the main checkout. Worktrees
+  share the object database, so unpushed commits are visible across them.
+
+The guard, when installed, sees workflow agents too: hooks from settings
+run inside subagents. `/ship` then needs `+push` and `+post`, or the
+permission prompt.
 
 ## Lints and metrics
 
