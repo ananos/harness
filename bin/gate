@@ -39,6 +39,18 @@ def agents_map():
             "remediation": "fix the map so every path it names exists"}
 
 
+def workflows():
+    out, ok = [], True
+    for t in sorted(glob.glob(os.path.join(ROOT, "tests", "workflows",
+                                           "test_*.mjs"))):
+        r = sh(os.path.basename(t), ["node", t], "")
+        ok = ok and r["pass"]
+        out.append(r["output"])
+    return {"name": "workflows", "pass": ok, "output": "".join(out)[-2000:],
+            "remediation": "a workflow's control flow or model routing "
+                           "changed; fix the script or update its test"}
+
+
 def exec_plans():
     problems = []
     for p in glob.glob(os.path.join(ROOT, "docs", "exec-plans", "*", "*.md")):
@@ -63,8 +75,7 @@ def main():
                     "-s", "tests"], "fix the failing test or the code"),
         sh("zsh-guard", ["bash", "tests/test_zsh_guard.sh"],
            "see hooks/zshenv-guard.zsh"),
-        sh("drive-pr", ["node", "tests/test_drive_pr.mjs"],
-           "workflows/drive-pr.js control flow changed; update test or fix"),
+        workflows(),
         sh("shellcheck", ["shellcheck"] + shells,
            "fix the shellcheck finding; scripts target bash 3.2"),
         sh("py-compile", [sys.executable, "-m", "py_compile"] + pys,
