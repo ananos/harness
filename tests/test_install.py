@@ -43,15 +43,38 @@ class InstallTest(unittest.TestCase):
         with open(self.settings) as f:
             return json.load(f)
 
+    def test_default_installs_workflows_only(self):
+        self.run_install("--apply")
+        wf = os.path.join(self.home, ".claude", "workflows")
+        self.assertEqual(sorted(os.listdir(wf)),
+                         ["build.js", "ship.js", "triage.js", "verify.js"])
+        self.assertEqual(self.load(), EXISTING)
+        self.assertNotIn("zshenv-guard", open(
+            os.path.join(self.home, ".zshenv")).read())
+        hp = subprocess.run(["git", "config", "--global", "core.hooksPath"],
+                            env=self.env, stdout=subprocess.PIPE,
+                            universal_newlines=True).stdout.strip()
+        self.assertEqual(hp, "")
+
+    def test_stale_workflow_link_removed(self):
+        wf = os.path.join(self.home, ".claude", "workflows")
+        os.makedirs(wf)
+        os.symlink(os.path.join(ROOT, "workflows", "gone.js"),
+                   os.path.join(wf, "gone.js"))
+        os.symlink("/elsewhere/mine.js", os.path.join(wf, "mine.js"))
+        self.run_install("--apply")
+        self.assertFalse(os.path.lexists(os.path.join(wf, "gone.js")))
+        self.assertTrue(os.path.lexists(os.path.join(wf, "mine.js")))
+
     def test_dry_run_changes_nothing(self):
-        out = self.run_install()
+        out = self.run_install("--all")
         self.assertIn("DRY RUN", out)
         self.assertEqual(self.load(), EXISTING)
         self.assertFalse(os.path.lexists(
             os.path.join(self.home, ".local", "bin", "harness-ack")))
 
     def test_apply_idempotent_and_uninstall(self):
-        self.run_install("--apply")
+        self.run_install("--all", "--apply")
         s = self.load()
         self.assertEqual(s["hooks"]["SessionStart"],
                          EXISTING["hooks"]["SessionStart"])
@@ -68,9 +91,9 @@ class InstallTest(unittest.TestCase):
         self.assertIn("zshenv-guard.zsh", zshenv)
         self.assertIn(".cargo/env", zshenv)
         self.assertTrue(os.path.islink(
-            os.path.join(self.home, ".claude", "workflows", "drive-pr.js")))
+            os.path.join(self.home, ".claude", "workflows", "build.js")))
 
-        again = self.run_install("--apply")
+        again = self.run_install("--all", "--apply")
         self.assertIn("no change", again)
         self.assertEqual(len(self.load()["hooks"]["PreToolUse"]), 1)
 
@@ -80,11 +103,13 @@ class InstallTest(unittest.TestCase):
                          '. "$HOME/.cargo/env"\n')
         self.assertFalse(os.path.lexists(
             os.path.join(self.home, ".local", "bin", "harness-ack")))
+        self.assertEqual(os.listdir(
+            os.path.join(self.home, ".claude", "workflows")), [])
 
     def test_refuses_foreign_hooks_path(self):
         subprocess.run(["git", "config", "--global", "core.hooksPath",
                         "/elsewhere"], env=self.env, check=True)
-        out = self.run_install("--apply")
+        out = self.run_install("--with", "git", "--apply")
         self.assertIn("REFUSED", out)
         hp = subprocess.run(["git", "config", "--global", "core.hooksPath"],
                             env=self.env, stdout=subprocess.PIPE,
