@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""commit-msg check: trailers and subject style.
+
+Per-repo knobs (git config):
+  harness.subjectStyle  conventional (default) | subsystem | off
+  harness.subjectMax    default 50 for conventional, 75 for subsystem
+  harness.signoff       true (default) | false
+"""
+import re
+import subprocess
+import sys
+
+CONVENTIONAL = re.compile(
+    r"^(feat|fix|docs|chore|refactor|test|ci|build|perf|style|revert)"
+    r"(\([^)\s]+\))?!?: (?P<desc>.+)$")
+SUBSYSTEM = re.compile(r"^[\w./+-]+(, ?[\w./+-]+)*: (?P<desc>.+)$")
+SKIP = re.compile(r"^(Merge |Revert \"|fixup! |squash! |amend! )")
+BOT = re.compile(
+    r"(?i)claude|anthropic|copilot|chatgpt|openai|codex|gemini|cursor|"
+    r"devin|\[bot\]|bot@|noreply@github\.com")
+ATTRIBUTION = re.compile(
+    r"(?im)^claude-session:|generated with \[?claude code|^\U0001F916")
+
+
+def cfg(key, default):
+    try:
+        out = subprocess.run(["git", "config", "--get", key],
+                             stdout=subprocess.PIPE,
+                             universal_newlines=True).stdout.strip()
+    except OSError:
+        out = ""
+    return out or default
+
+
+def main(path):
+    with open(path) as f:
+        lines = [l.rstrip("\n") for l in f if not l.startswith("#")]
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    if not lines:
+        return 0
+    subject = lines[0]
+    msg = "\n".join(lines)
+    errors, warnings = [], []
+
+    for m in re.finditer(r"(?im)^co-authored-by:\s*(.+)$", msg):
+        if BOT.search(m.group(1)):
+            errors.append("bot/AI Co-authored-by (%s): drop it; person "
+                          "co-authors are fine" % m.group(1).strip())
+    if ATTRIBUTION.search(msg):
+        errors.append("assistant attribution line (Claude-Session / "
+                      "\"Generated with\"): drop it")
+
+    if SKIP.match(subject):
+        return report(errors, warnings)
+
+    if cfg("harness.signoff", "true") == "true":
+        sob = re.findall(r"(?m)^Signed-off-by: (.+)$", msg)
+        if not sob:
+            errors.append("missing Signed-off-by: commit with -s")
+        else:
+            me = "%s <%s>" % (cfg("user.name", "?"), cfg("user.email", "?"))
+            if me not in sob:
+                warnings.append("Signed-off-by does not match %s" % me)
+            last = [l for l in lines if l.strip()][-1]
+            if not last.startswith("Signed-off-by:"):
+                warnings.append("Signed-off-by should be the last trailer")
+
+    style = cfg("harness.subjectStyle", "conventional")
+    if style != "off":
+        rx = CONVENTIONAL if style == "conventional" else SUBSYSTEM
+        limit = int(cfg("harness.subjectMax",
+                        "50" if style == "conventional" else "75"))
+        m = rx.match(subject)
+        if not m:
+            errors.append(
+                "subject is not %s style: %r (e.g. `fix(scope): Add x`)"
+                % (style, subject) if style == "conventional" else
+                "subject is not `subsystem: Summary`: %r" % subject)
+        elif style == "conventional" and not m.group("desc")[0].isupper():
+            errors.append("capitalize the description: %r" % subject)
+        if len(subject) > limit:
+            errors.append("subject is %d chars, limit %d"
+                          % (len(subject), limit))
+        if subject.endswith("."):
+            errors.append("no trailing period in the subject")
+        if re.search(u"[—–→]|->", subject):
+            errors.append("no em dashes or arrows in the subject")
+        if re.search(r"\(#\d+\)$", subject):
+            errors.append("do not append (#NN); the merge adds it")
+
+    if len(lines) > 1 and lines[1].strip():
+        errors.append("leave a blank line after the subject")
+    for l in lines[2:]:
+        if len(l) > 72 and not re.search(r"https?://|^\S+:\s", l):
+            warnings.append("body line over 72 cols: %r" % l[:40])
+            break
+    return report(errors, warnings)
+
+
+def report(errors, warnings):
+    for w in warnings:
+        sys.stderr.write("harness commit-msg: warning: %s\n" % w)
+    for e in errors:
+        sys.stderr.write("harness commit-msg: %s\n" % e)
+    if errors:
+        sys.stderr.write("harness commit-msg: rejected. Fix the message "
+                         "and commit again (do not use --no-verify).\n")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1]))
