@@ -16,12 +16,14 @@ The files live in `workflows/`. `make install-apply` links them into
 | :- | :- | :- |
 | `/build <task>` | plan, skeleton, parallel tasks, `/verify`, land | local commits and a PR body |
 | `/verify [task]` | gate and four review lenses, fixes until clean | a clean branch, or what is left |
+| `/review [pr\|branch]` | finders in parallel, a vote per finding, a risk tier | a report in `~/.claude/harness/reports/`, posted only on `{post: true}` |
 | `/ship [branch]` | push, open a draft PR, watch CI, triage failures | a PR URL and CI verdict |
 | `/triage owner/repo` | classify open issues from people | a report in `~/.claude/harness/reports/` |
 
 `/build` never pushes. Running `/ship` is the ack to push and open the
 draft PR. `/triage` posts nothing; with `{apply: true}` it adds existing
-labels and nothing else.
+labels and nothing else. `/review` posts nothing unless `{post: true}`,
+and then one review with event `COMMENT`: an agent never approves.
 
 ## Model routing
 
@@ -41,6 +43,12 @@ labels and nothing else.
 | verify: claims, conventions lenses | `sonnet` | checks text against code and rules |
 | verify: skeptic per finding | `sonnet` | tries to refute before a fix round |
 | verify: fix | `sonnet`, then `opus` | a failure that survives a round escalates |
+| review: scope, tier | `sonnet` | reads the PR, sets the risk tier from the change |
+| review: second opinion | `opus` | a different model asks whether a person is needed anyway |
+| review: finders (2, 4 or 6), security lane | `opus` | the bugs that matter |
+| review: merge duplicates | `haiku` | list hygiene |
+| review: voters (1, 3 or 5 per finding) | `sonnet` | distinct lenses; a finding needs a majority |
+| review: report, post | `haiku` | file writes and one gh call |
 | ship: all stages | `haiku` | git, gh and log reading |
 | triage: collect, classify, apply | `haiku` | one small agent per issue |
 | triage: report | `sonnet` | one readable summary |
@@ -77,6 +85,45 @@ Claude Code shows a warning naming both.
 
 A run that stops can be resumed: `/workflows` shows the run, and Claude
 can relaunch it with its run id, replaying the finished agents from cache.
+
+## How /review works
+
+It follows the Claude Code team's own process ([How the Claude Code team
+does code review][ccr]), scaled to one person's repos.
+
+1. **Scope.** One reader pulls the PR's title, body, test plan and revert
+   plan, the diff against the merge base, the root `CLAUDE.md`, and every
+   `REVIEW.md` covering a touched path. Two classifiers run next: one sets
+   the risk tier from the change alone (low, medium, high), the other asks
+   whether a person must read it regardless. A touched CI workflow file or
+   a path the repo marks sensitive forces `high`. Tier sets the human
+   approvals the report asks for: 0, 1 or 2. An agent's finding never
+   counts as an approval.
+2. **Find.** `depth` picks the fleet: `quick` 2 finders and 1 voter,
+   `standard` 4 and 3, `deep` 6 and 5. Each finder takes one angle
+   (solves the stated problem, fits the system, breaks something else,
+   tested for its failure modes, first incident, config and workflow
+   lines) and must cite a file, a line and quoted evidence. A separate
+   security lane runs alongside. Findings tagged style, diagnostics or
+   cleanup are dropped in code. A cheap agent merges duplicates and drops
+   anything in `posted` from an earlier round.
+3. **Vote.** Each candidate goes to voters with distinct lenses (refute,
+   reproduce, intent, blast radius, history). It survives only with a
+   majority. Voters re-tag severity, so a defect that predates the PR
+   comes out as `pre-existing` rather than the author's fault.
+4. **Report.** Findings sorted Important, Nit, Pre-existing go into
+   `~/.claude/harness/reports/review-<repo>-<pr>-round<n>.md`. The first
+   line is a count, or says plainly there is nothing to fix. Rejected
+   candidates are listed so a person can spot a wrong rejection. With
+   `{post: true}` and an open PR, one review with event `COMMENT` and one
+   inline comment per finding is posted; nothing else.
+
+Re-review after the author pushes: `/review {"target": 42, "since":
+"<last reviewed sha>", "round": 2, "posted": [...]}`, where `posted` is
+the `postedKeys` from the previous result. From round 3 the report asks
+the author to reconsider the approach instead of fixing one more line.
+
+[ccr]: https://claude.dev/blog/solving-code-review-at-anthropic/
 
 ## Writing a new workflow
 
