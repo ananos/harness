@@ -47,7 +47,7 @@ class InstallTest(unittest.TestCase):
         self.run_install("--apply")
         wf = os.path.join(self.home, ".claude", "workflows")
         self.assertEqual(sorted(os.listdir(wf)),
-                         ["build.js", "review.js", "ship.js", "triage.js",
+                         ["build.js", "review-sweep.js", "review.js", "ship.js", "triage.js",
                           "verify.js"])
         self.assertEqual(self.load(), EXISTING)
         self.assertNotIn("zshenv-guard", open(

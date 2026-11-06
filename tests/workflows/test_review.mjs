@@ -2,24 +2,24 @@ import { strict as assert } from 'node:assert'
 import { run, byLabel, modelOf } from './stub.mjs'
 
 const scope = {
-  repo: 'brig-sh/brig', pr: 42, head: 'abc123def456789', base: 'origin/main', title: 'feat: Add thing',
-  intent: 'adds a thing', author: 'someone', files: ['a.go', 'b.go'], lines: 120,
-  reviewMd: '', skip: [], sensitive: [], ciFiles: [], testPlan: 'go test', revertPlan: 'revert',
+  repo: 'brig-sh/brig', pr: 42, head: 'abc123def456789', base: 'origin/main', branch: 'feat', title: 'feat: Add thing',
+  intent: 'adds a thing', author: 'someone', authorIsPerson: true, draft: false, files: ['a.go', 'b.go'], lines: 120,
+  gate: 'make test', reviewMd: '', skip: [], sensitive: [], ciFiles: [], testPlan: 'go test', revertPlan: 'revert',
 }
 const bug = (file, summary, kind = 'bug', severity = 'important') =>
   ({ file, line: 1, summary, scenario: 's', evidence: 'e', severity, kind })
+const roundOf = label => Number((label.match(/-r(\d+)$/) || [])[1])
 
 function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, finds = () => ({ findings: [] }),
-  security = { findings: [] }, merge = null, vote = () => true, posted = { posted: true, url: 'u' } }) {
+  security = () => ({ findings: [] }), vote = () => true, fix = null, posted = { posted: true, url: 'u' } }) {
   return ({ label, prompt }) => {
     if (label === 'scope') return sc
     if (label === 'tier') return { tier, reason: 'r', blastRadius: 'b' }
     if (label === 'second-opinion') return { needsPerson, reason: 'r' }
-    const f = label.match(/^finder-(\d+)$/)
-    if (f) return finds(Number(f[1]))
-    if (label === 'security') return security
-    if (label === 'merge') {
-      if (merge) return merge
+    const f = label.match(/^finder-(\d+)-r(\d+)$/)
+    if (f) return finds(Number(f[1]), Number(f[2]))
+    if (label.startsWith('security-')) return security(roundOf(label))
+    if (label.startsWith('merge-')) {
       const all = JSON.parse(prompt.slice(prompt.indexOf('Findings:\n') + 10))
       const seen = {}
       all.forEach(x => {
@@ -28,28 +28,31 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
       })
       return { findings: Object.values(seen), droppedAsRepeat: 0 }
     }
-    const v = label.match(/^vote-(\d+)-(\w+)$/)
+    const v = label.match(/^vote-(\d+)-(\w+)-r(\d+)$/)
     if (v) return { real: vote(prompt, v[2]), reason: 'r', severity: 'important' }
+    if (label.startsWith('fix-')) return fix(roundOf(label), prompt)
     if (label === 'report') return { path: '/tmp/r.md', summary: 'x' }
     if (label === 'post') return posted
     throw new Error('unexpected ' + label)
   }
 }
 
-// 1. clean PR: models per stage, standard shape, nothing to vote on, no post
+// 1. clean PR: models per stage, standard shape, nothing to vote on, no post, one round
 {
   const { result, calls } = await run('review', '42', responder({}))
   assert.equal(result.status, 'needs-human') // medium tier: one person still reads it
-  assert.equal(result.summary, '0 findings: nothing to fix')
+  assert.equal(result.summary, '0 open findings: nothing to fix')
   assert.equal(result.humanApprovals, 1)
+  assert.equal(result.round, 1)
   assert.equal(modelOf(calls, 'scope'), 'sonnet')
   assert.equal(modelOf(calls, 'tier'), 'sonnet')
   assert.equal(modelOf(calls, 'second-opinion'), 'opus')
   assert.equal(byLabel(calls, /^finder-/).length, 4)
-  assert.equal(modelOf(calls, 'finder-0'), 'opus')
-  assert.equal(modelOf(calls, 'security'), 'opus')
-  assert.equal(byLabel(calls, /^merge$/).length, 0) // nothing to merge
+  assert.equal(modelOf(calls, 'finder-0-r1'), 'opus')
+  assert.equal(modelOf(calls, 'security-r1'), 'opus')
+  assert.equal(byLabel(calls, /^merge-/).length, 0) // nothing to merge
   assert.equal(byLabel(calls, /^vote-/).length, 0)
+  assert.equal(byLabel(calls, /^fix-/).length, 0)
   assert.equal(modelOf(calls, 'report'), 'haiku')
   assert.equal(byLabel(calls, /^post$/).length, 0)
   console.log('ok   review: clean PR, models per stage, nothing posted')
@@ -73,28 +76,30 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
   console.log('ok   review: CI workflow files force two human approvals')
 }
 
-// 4. style dropped before voting; duplicates merged; majority vote decides
+// 4. style dropped before voting; duplicates merged; majority vote decides; no fix without fix:true
 {
   const finds = i => ({ findings: [
     bug('a.go', 'real bug'),
     bug('b.go', 'rename var', 'style'),
     i === 0 ? bug('c.go', 'false alarm') : bug('d.go', 'old bug', 'bug', 'pre-existing'),
   ] })
-  const security = { findings: [bug('s.go', 'token in log', 'security')] }
+  const security = () => ({ findings: [bug('s.go', 'token in log', 'security')] })
   const { result, calls } = await run('review', { target: '42', depth: 'standard' },
     responder({ finds, security, vote: p => !/false alarm/.test(p) }))
   assert.equal(result.dropped.nonBug, 4)
   const votes = byLabel(calls, /^vote-/)
   assert.ok(votes.every(c => !/rename var/.test(c.prompt)))
-  assert.equal(modelOf(calls, 'merge'), 'haiku')
+  assert.equal(modelOf(calls, 'merge-r1'), 'haiku')
   assert.equal(modelOf(calls, votes[0].label), 'sonnet')
   assert.equal(votes.length, 12) // 4 distinct candidates x 3 voters
   assert.equal(result.rejected, 1)
   assert.equal(result.findings.length, 3)
   assert.ok(result.findings.every(f => f.summary !== 'false alarm'))
   assert.equal(result.status, 'findings')
-  assert.match(calls.find(c => c.label === 'report').prompt, /3 findings, 3 important/)
-  console.log('ok   review: drops non-bugs, merges duplicates, majority vote, rejected listed')
+  assert.equal(byLabel(calls, /^fix-/).length, 0)
+  assert.equal(result.round, 1)
+  assert.match(calls.find(c => c.label === 'report').prompt, /3 open findings, 3 important/)
+  console.log('ok   review: drops non-bugs, merges duplicates, majority vote, no fix unless asked')
 }
 
 // 5. depth shapes the fleet; quick = 2 finders, 1 voter
@@ -106,7 +111,7 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
   console.log('ok   review: quick depth runs two finders and one voter')
 }
 
-// 6. posting happens only with post:true and an open PR, as one COMMENT review
+// 6. posting happens only with post:true, an open PR and a person as author; one COMMENT review
 {
   const r = responder({ finds: () => ({ findings: [bug('a.go', 'x')] }) })
   const a = await run('review', { target: '42', post: true }, r)
@@ -117,9 +122,15 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
   const b = await run('review', { target: '42' }, r)
   assert.equal(b.result.posted, false)
   const noPr = await run('review', { target: 'br', post: true },
-    responder({ scope: Object.assign({}, scope, { pr: 0 }) }))
+    responder({ scope: Object.assign({}, scope, { pr: 0 }), finds: () => ({ findings: [bug('a.go', 'x')] }) }))
   assert.equal(byLabel(noPr.calls, /^post$/).length, 0)
-  console.log('ok   review: posts only on post:true with an open PR, never approves')
+  const bot = await run('review', { target: '42', post: true },
+    responder({ scope: Object.assign({}, scope, { author: 'app/renovate', authorIsPerson: false }), finds: () => ({ findings: [bug('a.go', 'x')] }) }))
+  assert.equal(byLabel(bot.calls, /^post$/).length, 0)
+  assert.match(bot.calls.find(c => c.label === 'report').prompt, /not a person/)
+  const clean = await run('review', { target: '42', post: true }, responder({}))
+  assert.equal(byLabel(clean.calls, /^post$/).length, 0)
+  console.log('ok   review: posts only on post:true, open PR, person author, something to say')
 }
 
 // 7. later rounds: diff-only since a sha, earlier postings handed to merge, round cap
@@ -127,14 +138,67 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
   const { result, calls } = await run('review',
     { target: '42', since: 'deadbeef', round: 3, posted: ['a.go:1: old'] },
     responder({ finds: () => ({ findings: [bug('a.go', 'x')] }) }))
-  assert.match(calls.find(c => c.label === 'finder-0').prompt, /git diff deadbeef\.\.\.abc123def456789/)
-  assert.match(calls.find(c => c.label === 'merge').prompt, /already posted/)
-  assert.equal(result.reconsider, true)
-  assert.match(calls.find(c => c.label === 'report').prompt, /reconsider the approach/)
-  console.log('ok   review: diff-only re-review, no repeats, round cap')
+  assert.match(calls.find(c => c.label === 'finder-0-r3').prompt, /git diff deadbeef\.\.\.abc123def456789/)
+  assert.match(calls.find(c => c.label === 'merge-r3').prompt, /already posted/)
+  assert.equal(result.reconsider, false) // no fix loop: a single pass never asks to reconsider
+  assert.deepEqual(result.postedKeys, ['a.go:1: old', 'a.go:1: x'])
+  console.log('ok   review: diff-only re-review, no repeats')
 }
 
-// 8. bad depth is an error
+// 8. fix loop: fixer runs on important findings, the new diff is re-reviewed, converges
+{
+  const finds = (i, r) => ({ findings: r === 1 ? [bug('a.go', 'bug one'), bug('b.go', 'bug two')] : [] })
+  const fix = (r) => ({ head: 'fffff' + r, fixed: ['a.go:1: bug one', 'b.go:1: bug two'], skipped: [], gatePass: true })
+  const { result, calls } = await run('review', { target: '42', fix: true, depth: 'quick' }, responder({ finds, fix, tier: 'low' }))
+  assert.equal(result.status, 'clean')
+  assert.equal(result.round, 2)
+  assert.equal(result.head, 'fffff1')
+  assert.deepEqual(result.fixed, ['a.go:1: bug one', 'b.go:1: bug two'])
+  assert.equal(result.findings.length, 0)
+  const fixes = byLabel(calls, /^fix-/)
+  assert.equal(fixes.length, 1)
+  assert.equal(fixes[0].opts.model, 'sonnet')
+  assert.match(fixes[0].prompt, /make test/)
+  assert.match(fixes[0].prompt, /do not push/)
+  const r2 = calls.find(c => c.label === 'finder-0-r2')
+  assert.match(r2.prompt, /git diff abc123def456789\.\.\.fffff1/)
+  assert.equal(byLabel(calls, /^merge-r2$/).length, 0) // round 2 found nothing
+  assert.match(result.summary, /0 open findings: nothing to fix, 2 fixed by the agent/)
+  console.log('ok   review: fix loop fixes, re-reviews the new diff, converges')
+}
+
+// 9. fix loop: a finding that survives escalates the fixer; skipped findings go to a person; round cap asks to reconsider
+{
+  const finds = () => ({ findings: [bug('a.go', 'stubborn'), bug('z.go', 'design call')] })
+  const fix = (r, prompt) => ({ head: 'eeee' + r, fixed: ['a.go:1: stubborn'],
+    skipped: [{ key: 'z.go:1: design call', reason: 'needs a decision' }], gatePass: r !== 2 })
+  const { result, calls } = await run('review', { target: '42', fix: true, depth: 'quick' }, responder({ finds, fix }))
+  const fixes = byLabel(calls, /^fix-/)
+  assert.deepEqual(fixes.map(c => c.label), ['fix-r1', 'fix-r2-escalated'])
+  assert.deepEqual(fixes.map(c => c.opts.model), ['sonnet', 'opus'])
+  assert.equal(result.round, 3)
+  assert.equal(result.reconsider, true)
+  assert.equal(result.status, 'findings')
+  assert.ok(result.forPerson.length >= 1)
+  assert.equal(result.forPerson[0].reason, 'needs a decision')
+  assert.match(calls.find(c => c.label === 'report').prompt, /reconsider the approach/)
+  assert.match(calls.find(c => c.label === 'report').prompt, /Left for a person/)
+  console.log('ok   review: escalates a repeat, hands design calls to a person, stops at the round cap')
+}
+
+// 10. fix loop never posts on a bot PR and never pushes; a failed gate blocks clean
+{
+  const finds = (i, r) => ({ findings: r === 1 ? [bug('a.go', 'x')] : [] })
+  const fix = (r) => ({ head: 'ddd' + r, fixed: ['a.go:1: x'], skipped: [], gatePass: false })
+  const { result, calls } = await run('review', { target: '42', fix: true, depth: 'quick', post: true }, responder({ finds, fix, tier: 'low' }))
+  assert.equal(result.gatePass, false)
+  assert.notEqual(result.status, 'clean')
+  assert.ok(calls.every(c => !/git push/.test(c.prompt)))
+  assert.match(calls.find(c => c.label === 'report').prompt, /gate FAILED/)
+  console.log('ok   review: a failing gate after fixes is never clean')
+}
+
+// 11. bad depth is an error
 {
   await assert.rejects(run('review', { target: '42', depth: 'max' }, responder({})), /depth must be/)
   console.log('ok   review: rejects an unknown depth')

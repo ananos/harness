@@ -16,7 +16,8 @@ The files live in `workflows/`. `make install-apply` links them into
 | :- | :- | :- |
 | `/build <task>` | plan, skeleton, parallel tasks, `/verify`, land | local commits and a PR body |
 | `/verify [task]` | gate and four review lenses, fixes until clean | a clean branch, or what is left |
-| `/review [pr\|branch]` | finders in parallel, a vote per finding, a risk tier | a report in `~/.claude/harness/reports/`, posted only on `{post: true}` |
+| `/review [pr\|branch]` | finders in parallel, a vote per finding, a risk tier; with `fix` a fix loop | a report in `~/.claude/harness/reports/`, posted only on `{post: true}` |
+| `/review-sweep owner/repo` | `/review` per open PR by a person, new heads only | a state file and a digest beside the reports |
 | `/ship [branch]` | push, open a draft PR, watch CI, triage failures | a PR URL and CI verdict |
 | `/triage owner/repo` | classify open issues from people | a report in `~/.claude/harness/reports/` |
 
@@ -48,7 +49,9 @@ and then one review with event `COMMENT`: an agent never approves.
 | review: finders (2, 4 or 6), security lane | `opus` | the bugs that matter |
 | review: merge duplicates | `haiku` | list hygiene |
 | review: voters (1, 3 or 5 per finding) | `sonnet` | distinct lenses; a finding needs a majority |
+| review: fix | `sonnet`, then `opus` | a finding that survives a round escalates |
 | review: report, post | `haiku` | file writes and one gh call |
+| review-sweep: collect, record | `haiku` | gh list, a state file, a digest |
 | ship: all stages | `haiku` | git, gh and log reading |
 | triage: collect, classify, apply | `haiku` | one small agent per issue |
 | triage: report | `sonnet` | one readable summary |
@@ -111,17 +114,49 @@ does code review][ccr]), scaled to one person's repos.
    reproduce, intent, blast radius, history). It survives only with a
    majority. Voters re-tag severity, so a defect that predates the PR
    comes out as `pre-existing` rather than the author's fault.
-4. **Report.** Findings sorted Important, Nit, Pre-existing go into
+4. **Fix** (only with `{fix: true}`). A fixer commits the important
+   findings as fixups on the branch and runs the gate; a finding that
+   needs a design decision, a public interface or a sensitive path is left
+   for a person with the reason. The new diff then goes back to Find and
+   Vote with the earlier findings excluded, so nothing is reported twice.
+   A finding that survives a round escalates the fixer from Sonnet to
+   Opus. The loop ends when nothing important is left, when the fixer
+   changes nothing, or at round 3, where the report asks the author to
+   reconsider the approach instead of fixing one more line. Nothing is
+   pushed.
+5. **Report.** Open findings sorted Important, Nit, Pre-existing go into
    `~/.claude/harness/reports/review-<repo>-<pr>-round<n>.md`. The first
-   line is a count, or says plainly there is nothing to fix. Rejected
-   candidates are listed so a person can spot a wrong rejection. With
-   `{post: true}` and an open PR, one review with event `COMMENT` and one
-   inline comment per finding is posted; nothing else.
+   line is a count, or says plainly there is nothing to fix, then what the
+   agent fixed and what it left for a person. Rejected candidates are
+   listed so a person can spot a wrong rejection. With `{post: true}`, an
+   open PR, a person as author and something to say, one review with event
+   `COMMENT` and one inline comment per finding is posted; nothing else.
+   A bot's PR is never posted to.
 
-Re-review after the author pushes: `/review {"target": 42, "since":
-"<last reviewed sha>", "round": 2, "posted": [...]}`, where `posted` is
-the `postedKeys` from the previous result. From round 3 the report asks
-the author to reconsider the approach instead of fixing one more line.
+Manual re-review after the author pushes: `/review {"target": 42,
+"since": "<last reviewed sha>", "round": 2, "posted": [...]}`, where
+`posted` is the `postedKeys` from the previous result. `/review-sweep`
+does this bookkeeping for you.
+
+## How /review-sweep works
+
+The scheduled form. `/review-sweep owner/repo` lists the open PRs, keeps
+those whose author is a person (`gh api users/<login>` type `User`; bots
+and apps are skipped and named in the digest), reads
+`~/.claude/harness/reports/review-state-<repo>.json`, and runs `/review`
+on every PR whose head moved since the last sweep, passing `since`,
+`round` and `posted` from the state. It then rewrites the state file and
+a digest, `review-sweep-<repo>-<date>.md`, whose first line is a count.
+`{post: true}` and `{fix: true}` pass through to each review; drafts are
+always read-only; `{drafts: false}` skips them.
+
+To run it on a schedule, `bin/review-watch owner/repo ['"post": true']`
+runs `claude -p "/review-sweep ..."` headless with a per-repo lock and a
+log in the reports directory. `templates/review-watch.plist` is a launchd
+agent that calls it every 30 minutes; its comment has the three commands
+to install and stop it. The second argument in the plist is the standing
+ack: empty writes reports only, `"post": true` posts findings as you.
+Approving and merging stay with a person, as before.
 
 [ccr]: https://claude.dev/blog/solving-code-review-at-anthropic/
 
