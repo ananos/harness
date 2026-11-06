@@ -10,6 +10,7 @@ setup. This file is the map. Detail lives in `docs/`.
 | :- | :- |
 | `workflows/build.js` | plan, skeleton, parallel tasks, verify, land; local only |
 | `workflows/verify.js` | gate + four review lenses + fix loop on a branch |
+| `workflows/review.js` | PR review: finders, vote per finding, risk tier, report; posts on ack |
 | `workflows/ship.js` | push, draft PR, watch CI, triage failures |
 | `workflows/triage.js` | classify open issues from people; report |
 | `templates/workflow.js` | the starting point for `make new-workflow NAME=x` |
