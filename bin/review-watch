@@ -1,0 +1,38 @@
+#!/bin/bash
+# Run /review-sweep over one repo from launchd or cron, headless.
+#
+#   bin/review-watch owner/repo [extra JSON fields]
+#   bin/review-watch brig-sh/brig '"post": true, "fix": false'
+#
+# Posting and fixing are off unless the extra fields turn them on; putting
+# "post": true in the launchd plist is the standing ack to post as you.
+# Logs to ~/.claude/harness/reports/review-watch-<repo>.log. One run at a
+# time per repo, via a lock directory.
+set -euo pipefail
+
+repo="${1:-}"
+extra="${2:-}"
+if [ -z "$repo" ]; then
+  echo "usage: review-watch owner/repo ['\"post\": true, ...']" >&2
+  exit 2
+fi
+slug="$(printf '%s' "$repo" | tr -c 'A-Za-z0-9._-' '-')"
+reports="$HOME/.claude/harness/reports"
+lock="$HOME/.claude/harness/locks/review-watch-$slug"
+mkdir -p "$reports" "$HOME/.claude/harness/locks"
+
+if ! mkdir "$lock" 2>/dev/null; then
+  echo "$(date '+%F %T') another review-watch holds $lock; skipping" >>"$reports/review-watch-$slug.log"
+  exit 0
+fi
+trap 'rmdir "$lock"' EXIT
+
+json="{\"repo\": \"$repo\"${extra:+, $extra}}"
+claude_bin="${CLAUDE_BIN:-$(command -v claude)}"
+{
+  echo "$(date '+%F %T') start $json"
+  "$claude_bin" -p "/review-sweep $json" \
+    --permission-mode bypassPermissions \
+    --output-format text
+  echo "$(date '+%F %T') end rc=$?"
+} >>"$reports/review-watch-$slug.log" 2>&1
