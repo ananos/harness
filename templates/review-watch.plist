@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd agent that runs /review-sweep over one repo every 30 minutes.
+
+    sed -e 's|__REPO__|brig-sh/brig|' -e 's|__SLUG__|brig-sh-brig|' \
+        -e "s|__HOME__|$HOME|" templates/review-watch.plist \
+        > ~/Library/LaunchAgents/ai.nofire.review-watch.__SLUG__.plist
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.nofire.review-watch.brig-sh-brig.plist
+
+  The second argument is the ack: leave it empty to write reports only,
+  or set it to "post": true to post findings as you, "fix": true to let
+  the agent fix your own branches. Stop with
+    launchctl bootout gui/$(id -u)/ai.nofire.review-watch.brig-sh-brig
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.nofire.review-watch.__SLUG__</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/develop/harness/bin/review-watch</string>
+    <string>__REPO__</string>
+    <string></string>
+  </array>
+  <key>StartInterval</key>
+  <integer>1800</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/.claude/harness/reports/review-watch-__SLUG__.err</string>
+</dict>
+</plist>
