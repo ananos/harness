@@ -18,6 +18,7 @@ The files live in `workflows/`. `make install-apply` links them into
 | `/verify [task]` | gate and four review lenses, fixes until clean | a clean branch, or what is left |
 | `/review [pr\|branch]` | finders in parallel, a vote per finding, a risk tier; with `fix` a fix loop | a report in `~/.claude/harness/reports/`, posted only on `{post: true}` |
 | `/review-sweep owner/repo` | `/review` per open PR by a person, new heads only | a state file and a digest beside the reports |
+| `/paper <task>` | research plan, section drafts in parallel, four reviewer lenses, fixes | a plan while results are owed; then local commits and a report of what is left for the author |
 | `/ship [branch]` | push, open a draft PR, watch CI, triage failures | a PR URL and CI verdict |
 | `/triage owner/repo` | classify open issues from people | a report in `~/.claude/harness/reports/` |
 
@@ -52,6 +53,21 @@ and then one review with event `COMMENT`: an agent never approves.
 | review: fix | `sonnet`, then `opus` | a finding that survives a round escalates |
 | review: report, post | `haiku` | file writes and one gh call |
 | review-sweep: collect, record | `haiku` | gh list, a state file, a digest |
+| paper: recon (3 readers) | `sonnet` | venue rules, the draft, the evidence |
+| paper: topic analysis | `fable` | the problem, the state of the art, the gaps |
+| paper: story, evaluation plan, their revision | `claude-mythos-5-1` | the thesis, the contributions and what proves them |
+| paper: critique | `opus` | a third model reads all of it as a PC member |
+| paper: work plan, section outline | `opus` | work packages, checkpoint, sequence; section tasks |
+| paper: frame | `sonnet` | branch, section files, shared macros |
+| paper: section, tier `argument` | `opus` | introduction, design, evaluation, discussion |
+| paper: section, tier `prose` | `sonnet` | background, implementation, related work |
+| paper: section, tier `chore` | `haiku` | bibliography, captions, tables |
+| paper: integrate each wave | `sonnet` | cherry-picks and build fixes |
+| paper: gate, write plan, report | `haiku` | runs the build, writes files |
+| paper: story, evidence lenses | `opus` | breaks in the argument, numbers that differ from the data |
+| paper: citations, style lenses | `sonnet` | cite keys, venue rules, one name per concept |
+| paper: skeptic per finding | `sonnet` | tries to refute before a fix round |
+| paper: fix | `sonnet`, then `opus` | a finding that survives a round escalates |
 | ship: all stages | `haiku` | git, gh and log reading |
 | triage: collect, classify, apply | `haiku` | one small agent per issue |
 | triage: report | `sonnet` | one readable summary |
@@ -88,6 +104,78 @@ Claude Code shows a warning naming both.
 
 A run that stops can be resumed: `/workflows` shows the run, and Claude
 can relaunch it with its run id, replaying the finished agents from cache.
+
+## How /paper works
+
+`/paper` is `/build` for a paper or a deliverable kept as LaTeX or Markdown
+in a git repo. Run it from that repo. For instance:
+
+```text
+/paper {"task": "draft the evaluation from results/*.csv and align the intro with it", "venue": "EuroSys 2027", "gate": "latexmk -pdf -halt-on-error main.tex", "stopAfterPlan": true}
+```
+
+The first half writes a research plan. The second half writes the paper,
+and runs only when the plan's evidence is in the repo.
+
+1. **Recon.** Three readers map the venue rules, the text as it stands, and
+   the evidence: result files, plots, the bibliography, a build that works.
+2. **Analysis.** Fable analyzes the topic: the problem, the state of the
+   art with what each work lacks, the gaps, and the simpler alternative
+   that could explain away a result in each gap.
+3. **Story.** Mythos writes the thesis, the hypothesis the evaluation must
+   test, the scope, what the paper must not claim, the fallback paper, the
+   story from problem to takeaway, and at most four contributions
+   (`maxContributions`). Each contribution names the prior work it goes
+   past.
+4. **Evaluation.** Mythos plans the proof: research questions with an
+   endpoint and a control each, the configurations compared, and the
+   benchmarks. Every contribution needs a micro benchmark and a macro
+   benchmark, and the plan needs a baseline configuration. The script
+   checks both. A benchmark carries a gate, the target that decides whether
+   its claim stays, and a status: `have` with the path of the results, or
+   `to-run`.
+5. **Critique.** Opus reads the three as a program committee member. Major
+   issues, and anything the script's checks found, get one revision.
+6. **Plan.** Opus turns what is still owed into work packages with an owner
+   role, effort, dependencies, steps and an acceptance condition. It adds
+   a checkpoint with three outcomes (continue, narrow, defer), the
+   sequence along the critical path, and the first assignment.
+7. **Outline.** One task per section file, with its points, evidence and
+   page budget, plus corrections to claims the existing text makes and the
+   plan no longer supports. All of the above is written to
+   `$(git rev-parse --git-common-dir)/harness/<slug>/plan.md`.
+
+The run stops here with `evidence-owed` while a benchmark is `to-run`,
+with `needs-human` on a blocking question or a contribution the plan
+cannot prove, and with `planned` on `{stopAfterPlan: true}`.
+`{draftWithoutResults: true}` goes on and leaves TODO markers.
+
+8. **Frame.** One agent creates `harness/<slug>`, makes the root file
+   include every section file, and adds macros for the shared terms.
+9. **Draft.** Sections run in dependency waves, each in its own worktree.
+   The abstract, introduction and conclusion depend on the sections they
+   summarize, so they are written last. An integrator cherry-picks each
+   wave and runs the build.
+10. **Review.** Four lenses read the result: story, evidence, citations
+    and style. A skeptic tries to refute each blocking finding. A fixer
+    commits the confirmed ones and the loop repeats, up to `maxRounds` (3).
+11. **Report.** `REPORT.md` beside the plan lists what is left: sections
+    that did not land, missing evidence, unresolved findings, and findings
+    only the author can decide.
+
+Writers and fixers are told never to invent a number, a result or a
+reference. Where the repo has no evidence they leave a TODO marker and
+return it in `missing`. They also get the list of non-claims, and the story
+lens reports any sentence that implies one. A fixer changes the claim to
+match the data. A
+finding that needs a new experiment or a reference lookup is marked for the
+author and never reaches a fixer. The run ends `ready-for-author` only when
+nothing is owed.
+
+Section agents load the `ananos-academic` skill for prose when it is
+installed. `{"voice": "<skill>"}` names another one and `{"voice": null}`
+turns it off. `/paper` never pushes; `/ship` works on its branch as on any
+other.
 
 ## How /review works
 
