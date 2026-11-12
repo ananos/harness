@@ -18,6 +18,7 @@ person still decides when something leaves the machine.
 | `/verify [task]` | runs the gate and four review lenses on a branch, fixes until clean |
 | `/review [pr\|branch]` | parallel bug finders and a security lane, a vote per finding, a risk tier; `{fix: true}` fixes and re-reviews until clean; posts only on `{post: true}` |
 | `/review-sweep owner/repo` | `/review` over every open PR by a person, new heads only, no repeated findings; `bin/review-watch` runs it from launchd |
+| `/paper <task>` | plans a paper kept in git (topic analysis, story, contributions, evaluation plan, work packages), then drafts the sections in parallel, checks every claim against the data, and stops at local commits |
 | `/ship [branch]` | pushes, opens a draft PR, watches CI, triages failures |
 | `/triage owner/repo` | classifies open issues from people into a report |
 

@@ -13,6 +13,7 @@ setup. This file is the map. Detail lives in `docs/`.
 | `workflows/review.js` | PR review: finders, vote per finding, risk tier, fix loop; posts on ack |
 | `workflows/review-sweep.js` | `/review` over a repo's open PRs by people, with state |
 | `bin/review-watch` | launchd entry point for `/review-sweep`; `templates/review-watch.plist` |
+| `workflows/paper.js` | research plan, parallel section drafts, reviewer lenses on a paper in git; local only |
 | `workflows/ship.js` | push, draft PR, watch CI, triage failures |
 | `workflows/triage.js` | classify open issues from people; report |
 | `templates/workflow.js` | the starting point for `make new-workflow NAME=x` |

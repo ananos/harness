@@ -25,6 +25,10 @@ active -- written and tested with stub agents; no real run yet.
 - [x] `make new-workflow NAME=x` from `templates/workflow.js`
 - [x] symlinked files in `~/.claude/workflows` load and receive `args`
   (checked 2026-10-16 with a zero-agent workflow)
+- [x] `/paper`: recon, analysis, story, evaluation plan, critique, work
+  plan, outline; then frame, worktree waves, four reviewer lenses,
+  skeptics, fix with escalation, report
+  (`tests/workflows/test_paper.mjs`, 11 cases)
 - [ ] `make install-apply`, `/reload-skills`
 - [ ] `/build {"task": "...", "stopAfterPlan": true}` on a small brig
   change; read the plan
@@ -33,6 +37,8 @@ active -- written and tested with stub agents; no real run yet.
 - [ ] `/verify` on an existing branch (eg. an open hvi-vmm PR checkout)
 - [ ] `/ship` on a throwaway branch in `ananos/harness`
 - [ ] `/triage brig-sh/brig`
+- [ ] `/paper {"task": "...", "stopAfterPlan": true}` on a paper repo;
+  read the plan
 - [ ] record cost per run (tokens per stage, from `/workflows`) here
 
 ## Decision log
@@ -51,3 +57,18 @@ active -- written and tested with stub agents; no real run yet.
   command, so starting it is the explicit ack to push.
 - 2026-10-16: The plan file goes under the git common dir, not the
   tracked tree, so it does not leak into commits unless asked.
+- 2026-11-12: `/paper` has its own review loop and does not call
+  `/verify`. The lenses differ (claims against data, citations, venue
+  rules) and a missing result goes to the author, not to a fixer.
+- 2026-11-12: `/paper` has no skeleton with tests. The frame step only
+  creates the section files, and the build is the gate.
+- 2026-11-12: `/paper` plans in four steps: Fable analyzes the topic,
+  Mythos writes the story and the evaluation plan, Opus critiques. Three
+  models, so no model checks its own output.
+- 2026-11-12: The script checks what a prompt cannot guarantee: at most
+  four contributions, a micro and a macro benchmark per contribution, and
+  a baseline configuration. A failed check forces the revision.
+- 2026-11-12: `/paper` stops at the plan while a benchmark has no results.
+  The plan then carries work packages, a continue/narrow/defer checkpoint
+  and a first assignment. The text is written around the results that
+  exist; `draftWithoutResults` overrides this.
