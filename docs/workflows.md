@@ -239,9 +239,11 @@ does code review][ccr]), scaled to one person's repos.
    fixed and what it left for a person. Rejected candidates are listed so
    a person can spot a wrong rejection. A review whose findings are all
    nits is `clean`; the human approvals the tier asks for are reported
-   beside it, never folded into it. With `{post: true}`, an open PR, a
-   person as author and something to say, one review with event `COMMENT`
-   is posted: a body in that order with one line per finding, and one
+   beside it, never folded into it. With `{post: true}`, an open PR and a
+   person as author, one review with event `COMMENT` is posted, a clean
+   one included, since its verdict and what it verified and did not check
+   are what the author needs and a silent clean run cannot be told from one
+   that never ran: a body in that order with one line per finding, and one
    inline comment per finding (the defect in a sentence, the failure, the
    evidence, the class of bug when set). A still-open earlier finding is
    posted again on the line it now stands at. A bot's PR is never posted
