@@ -189,19 +189,31 @@ does code review][ccr]), scaled to one person's repos.
    whether a person must read it regardless. A touched CI workflow file or
    a path the repo marks sensitive forces `high`. Tier sets the human
    approvals the report asks for: 0, 1 or 2. An agent's finding never
-   counts as an approval.
+   counts as an approval. Everything quoted from the PR goes into the
+   brief as data to review, never as instructions.
+   On a re-review the scope step also collects the findings earlier rounds
+   left on the PR (each inline comment carries a `<!-- finding: KEY -->`
+   line, and a review body lists the keys it settled), and a classifier
+   judges every one of them against the current head before anything new
+   is looked for: `fixed` with the line that fixes it, `open` with the line
+   it now stands at, or `gone`. A fix with no cited line stays open, and so
+   does a finding the classifier skipped. After a rebase the whole diff is
+   in scope again.
 2. **Find.** `depth` picks the fleet: `quick` 2 finders and 1 voter,
    `standard` 4 and 3, `deep` 6 and 5. Each finder takes one angle
    (solves the stated problem, fits the system, breaks something else,
    tested for its failure modes, first incident, config and workflow
    lines) and must cite a file, a line and quoted evidence. A separate
-   security lane runs alongside. Findings tagged style, diagnostics or
-   cleanup are dropped in code. A cheap agent merges duplicates and drops
-   anything in `posted` from an earlier round. On a later round the brief
-   lists what earlier rounds asked for, read from the inline comments
-   already on the PR. A defect that follows from doing what an earlier
-   round asked is tagged `design`: it is a disagreement between rounds for
-   a person to settle, never a new important finding.
+   security lane runs alongside, and so does a verifier: it opens the code
+   behind each claim the description or a changed comment makes, names the
+   test for each changed behaviour, and returns what it verified, what it
+   could not open, and any claim the code contradicts, which becomes a
+   finding. Findings tagged style, diagnostics or cleanup are dropped in
+   code. A cheap agent merges duplicates and drops anything already posted
+   in an earlier round, in these or other words. On a later round the brief
+   lists what earlier rounds asked for. A defect that follows from doing
+   what an earlier round asked is tagged `design`: it is a disagreement
+   between rounds for a person to settle, never a new important finding.
 3. **Vote.** Each candidate goes to voters with distinct lenses (refute,
    reproduce, intent, blast radius, history). It survives only with a
    majority. Each voter also says whether it would block the merge on this
@@ -221,12 +233,19 @@ does code review][ccr]), scaled to one person's repos.
    pushed.
 5. **Report.** Open findings sorted Important, Nit, Pre-existing go into
    `~/.claude/harness/reports/review-<repo>-<pr>-round<n>.md`. The first
-   line is a count, or says plainly there is nothing to fix, then what the
-   agent fixed and what it left for a person. Rejected candidates are
-   listed so a person can spot a wrong rejection. With `{post: true}`, an
-   open PR, a person as author and something to say, one review with event
-   `COMMENT` and one inline comment per finding is posted; nothing else.
-   A bot's PR is never posted to.
+   line is a count, or says plainly there is nothing to fix, then what is
+   still open from earlier rounds, what was settled, what the verifier
+   confirmed, the checks it ran, what it did not check, what the agent
+   fixed and what it left for a person. Rejected candidates are listed so
+   a person can spot a wrong rejection. A review whose findings are all
+   nits is `clean`; the human approvals the tier asks for are reported
+   beside it, never folded into it. With `{post: true}`, an open PR, a
+   person as author and something to say, one review with event `COMMENT`
+   is posted: a body in that order with one line per finding, and one
+   inline comment per finding (the defect in a sentence, the failure, the
+   evidence, the class of bug when set). A still-open earlier finding is
+   posted again on the line it now stands at. A bot's PR is never posted
+   to.
 
 Manual re-review after the author pushes: `/review {"target": 42,
 "since": "<last reviewed sha>", "round": 2, "posted": [...]}`, where

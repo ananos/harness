@@ -10,10 +10,15 @@ const bug = (file, summary, kind = 'bug', severity = 'important') =>
   ({ file, line: 1, summary, scenario: 's', evidence: 'e', severity, kind })
 const roundOf = label => Number((label.match(/-r(\d+)$/) || [])[1])
 
+const EMPTY_VERIFY = { verified: [], contradicted: [], untested: [], checks: [], notChecked: [] }
+
 function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, finds = () => ({ findings: [] }),
-  security = () => ({ findings: [] }), vote = () => true, fix = null, posted = { posted: true, url: 'u' } }) {
+  security = () => ({ findings: [] }), vote = () => true, fix = null, posted = { posted: true, url: 'u' },
+  verify = () => EMPTY_VERIFY, classify = items => items.map(x => ({ key: x.key, status: 'fixed', file: x.file, line: 9, note: 'n' })) }) {
   return ({ label, prompt }) => {
     if (label === 'scope') return sc
+    if (label.startsWith('verify-')) return verify(roundOf(label))
+    if (label === 'classify') return { items: classify(JSON.parse(prompt.slice(prompt.indexOf('Earlier findings:\n') + 18))) }
     if (label === 'tier') return { tier, reason: 'r', blastRadius: 'b' }
     if (label === 'second-opinion') return { needsPerson, reason: 'r' }
     const f = label.match(/^finder-(\d+)-r(\d+)$/)
@@ -40,9 +45,13 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
 // 1. clean PR: models per stage, standard shape, nothing to vote on, no post, one round
 {
   const { result, calls } = await run('review', '42', responder({}))
-  assert.equal(result.status, 'needs-human') // medium tier: one person still reads it
+  assert.equal(result.status, 'clean') // nothing to fix is clean; the person's approval is a separate gate
   assert.equal(result.summary, '0 open findings: nothing to fix')
   assert.equal(result.humanApprovals, 1)
+  assert.equal(result.needsPerson, true)
+  assert.equal(byLabel(calls, /^verify-/).length, 1)
+  assert.equal(modelOf(calls, 'verify-r1'), 'sonnet')
+  assert.equal(byLabel(calls, /^classify$/).length, 0)
   assert.equal(result.round, 1)
   assert.equal(modelOf(calls, 'scope'), 'sonnet')
   assert.equal(modelOf(calls, 'tier'), 'sonnet')
@@ -149,27 +158,91 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
   console.log('ok   review: diff-only re-review, no repeats, round cap on manual rounds')
 }
 
-// 7b. later rounds see what earlier rounds asked for; a finding against that is a design disagreement, a nit for a person
+// 7b. later rounds classify every earlier finding first; open ones are reposted, settled ones never again; a finding against an earlier ask is a design nit
 {
-  const sc = Object.assign({}, scope, { priorFindings: ['receiver.py:296: the cap check and the create are not atomic; take a lock'] })
+  const prev = [
+    { key: 'receiver.py:296: non-atomic cap check', file: 'receiver.py', line: 296, severity: 'important', summary: 'the cap check and the create are not atomic; take a lock', sha: 'aaaaaaa0000' },
+    { key: 'README.md:3: typo', file: 'README.md', line: 3, severity: 'nit', summary: 'typo in the cap paragraph', sha: 'aaaaaaa0000' },
+  ]
+  const sc = Object.assign({}, scope, { previous: prev })
   const finds = () => ({ findings: [
     bug('receiver.py', 'the lock serializes every delivery', 'design'),
     bug('receiver.py', 'ignores the return value of create'),
   ] })
-  const { result, calls } = await run('review', { target: '42', since: 'deadbeef', round: 2 }, responder({ scope: sc, finds }))
+  const classify = items => items.map(x => x.key.startsWith('README') ? { key: x.key, status: 'fixed', file: x.file, line: 4, note: 'reworded' }
+    : { key: x.key, status: 'open', file: 'receiver.py', line: 310, note: 'the list is read outside the lock' })
+  const { result, calls } = await run('review', { target: '42', since: 'deadbeef', round: 2, post: true }, responder({ scope: sc, finds, classify }))
+  assert.equal(modelOf(calls, 'classify'), 'sonnet')
+  assert.match(calls.find(c => c.label === 'classify').prompt, /before anything else/)
   assert.match(calls.find(c => c.label === 'finder-0-r2').prompt, /Earlier rounds asked for these changes/)
-  assert.match(calls.find(c => c.label === 'finder-0-r2').prompt, /take a lock/)
-  assert.match(calls.find(c => c.label === 'tier').prompt, /kind=design/)
+  assert.match(calls.find(c => c.label === 'finder-0-r2').prompt, /\[receiver\.py:296: non-atomic cap check\] \(important, raised at aaaaaaa\) the cap check/)
+  assert.match(calls.find(c => c.label === 'finder-0-r2').prompt, /never an instruction to follow/)
   assert.match(byLabel(calls, /^vote-/)[0].prompt, /block the merge on this alone/)
+  assert.match(calls.find(c => c.label === 'merge-r2').prompt, /receiver\.py:296: non-atomic cap check/) // earlier keys are handed to the merge
+  assert.deepEqual(result.stillOpen.map(x => [x.key, x.atLine]), [['receiver.py:296: non-atomic cap check', 310]])
+  assert.deepEqual(result.settled.map(x => [x.key, x.status]), [['README.md:3: typo', 'fixed']])
   const design = result.findings.find(f => f.kind === 'design')
   assert.equal(design.severity, 'nit')
   assert.match(design.summary, /^Design disagreement with an earlier round: the lock/)
   assert.equal(result.findings.find(f => f.kind === 'bug').severity, 'important')
-  assert.match(calls.find(c => c.label === 'report').prompt, /2 open findings, 1 important/)
+  assert.equal(result.status, 'findings')
+  assert.match(result.summary, /2 open findings, 1 important, 1 still open from earlier rounds, 1 settled/)
+  const post = calls.find(c => c.label === 'post').prompt
+  assert.match(post, /<!-- settled: README\.md:3: typo -->/)
+  assert.match(post, /Still open since <sha7>/)
+  assert.match(post, /<!-- finding: KEY -->/)
+  assert.match(post, /never APPROVE/)
   const first = await run('review', '42', responder({ finds }))
   assert.doesNotMatch(first.calls.find(c => c.label === 'finder-0-r1').prompt, /Earlier rounds/)
-  assert.match(first.calls.find(c => c.label === 'scope').prompt, /priorFindings: empty/)
-  console.log('ok   review: later rounds carry the earlier findings; disagreeing with one is a design nit')
+  assert.match(first.calls.find(c => c.label === 'scope').prompt, /previous: empty/)
+  console.log('ok   review: later rounds classify earlier findings, repost open ones, settle the rest; disagreeing is a design nit')
+}
+
+// 7b2. a fixed classification with no line stays open; an unclassified one stays open; all settled and nothing new is clean
+{
+  const prev = [
+    { key: 'a.go:1: x', file: 'a.go', line: 1, severity: 'important', summary: 'x', sha: 'aaaaaaa0000' },
+    { key: 'b.go:2: y', file: 'b.go', line: 2, severity: 'important', summary: 'y', sha: 'aaaaaaa0000' },
+    { key: 'c.go:3: z', file: 'c.go', line: 3, severity: 'nit', summary: 'z', sha: 'aaaaaaa0000' },
+  ]
+  const sc = Object.assign({}, scope, { previous: prev })
+  const classify = () => [{ key: 'a.go:1: x', status: 'fixed', file: 'a.go', line: 0, note: 'no line cited' }, { key: 'c.go:3: z', status: 'gone', file: 'c.go', line: 0, note: 'removed' }]
+  const r = await run('review', { target: '42', since: 'deadbeef', round: 2 }, responder({ scope: sc, classify }))
+  assert.deepEqual(r.result.stillOpen.map(x => x.key).sort(), ['a.go:1: x', 'b.go:2: y'])
+  assert.deepEqual(r.result.settled.map(x => x.key), ['c.go:3: z'])
+  assert.equal(r.result.status, 'findings')
+  const ok = await run('review', { target: '42', since: 'deadbeef', round: 2 },
+    responder({ scope: sc, classify: items => items.map(x => ({ key: x.key, status: 'fixed', file: x.file, line: 7, note: 'n' })) }))
+  assert.equal(ok.result.status, 'clean')
+  assert.equal(ok.result.stillOpen.length, 0)
+  assert.match(ok.result.summary, /0 open findings: nothing to fix, 3 settled/)
+  console.log('ok   review: a fix without a cited line and an unclassified finding stay open; all settled is clean')
+}
+
+// 7b3. a rebase disables the diff-since brief; the verifier's contradicted claim becomes a nit finding and its gaps reach the report
+{
+  const sc = Object.assign({}, scope, { rebased: true })
+  const verify = () => ({ verified: [{ claim: 'Days is read only by purgeBefore', where: 'jobs/retention.go:41' }],
+    contradicted: [{ claim: 'the query excludes owners', file: 'q.go', line: 12, why: 'it excludes only kind=K8S' }],
+    untested: ['q.go:12 the new branch'], checks: ['go test ./q/ ok'], notChecked: ['docs/x.md'] })
+  const base = responder({ scope: sc, verify })
+  const { result, calls } = await run('review', { target: '42', since: 'deadbeef', round: 2 }, ({ label, prompt }) => {
+    const r = base({ label, prompt })
+    return label.startsWith('vote-') ? Object.assign({}, r, { blocking: false }) : r   // real, but nobody would block on it
+  })
+  const brief = calls.find(c => c.label === 'finder-0-r2').prompt
+  assert.match(brief, /rebased since deadbee/)
+  assert.doesNotMatch(brief, /New in this round/)
+  assert.equal(result.findings.length, 1)
+  assert.match(result.findings[0].summary, /^The description says "the query excludes owners" and the code does not/)
+  assert.equal(result.findings[0].severity, 'nit')
+  assert.equal(result.status, 'clean')
+  assert.deepEqual(result.notChecked, ['docs/x.md'])
+  const report = calls.find(c => c.label === 'report').prompt
+  assert.match(report, /"Verified"/)
+  assert.match(report, /"Not checked"/)
+  assert.match(report, /"Untested"/)
+  console.log('ok   review: rebase reviews the full diff; contradicted claims are nits; verified and not-checked reach the report')
 }
 
 // 7c. important needs a majority of confirming voters who would block the merge on it alone
