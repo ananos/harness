@@ -245,7 +245,13 @@ does code review][ccr]), scaled to one person's repos.
    inline comment per finding (the defect in a sentence, the failure, the
    evidence, the class of bug when set). A still-open earlier finding is
    posted again on the line it now stands at. A bot's PR is never posted
-   to.
+   to. With `voice` naming a skill, the posting agent loads it first and
+   writes the review as a reviewer's notes to the author instead of the
+   labelled shape: the defect and its effect in a sentence or two, code
+   quoted only when the line does not show it, a change suggested only
+   when it is not obvious, and the weight of each finding said at its end.
+   The markers, the tags and the still-open logic stay the same, and
+   nothing before the posting step sees the skill.
 
 Manual re-review after the author pushes: `/review {"target": 42,
 "since": "<last reviewed sha>", "round": 2, "posted": [...]}`, where

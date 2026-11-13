@@ -1,7 +1,7 @@
 export const meta = {
   name: 'review-sweep',
   description: 'Run /review over every open PR by a person on a repo, re-reviewing only new heads, with state so no finding is posted twice; posts only on post:true',
-  whenToUse: 'The scheduled form of /review: `bin/review-watch` runs it from launchd. Args: "owner/repo", or {repo, post, fix, depth, drafts, limit, models}. State in ~/.claude/harness/reports/review-state-<repo>.json, digest beside it.',
+  whenToUse: 'The scheduled form of /review: `bin/review-watch` runs it from launchd. Args: "owner/repo", or {repo, post, fix, depth, drafts, limit, voice, models}. State in ~/.claude/harness/reports/review-state-<repo>.json, digest beside it.',
   phases: [
     { title: 'Collect', detail: 'haiku lists open PRs by people and reads the state file' },
     { title: 'Review', detail: 'one /review per PR with a new head' },
@@ -55,7 +55,7 @@ phase('Review')
 const results = await pipeline(due, async (p) => {
   const r = await workflow('review', {
     target: p.number, depth: A.depth || 'standard', fix: !!A.fix && !p.draft, post: !!A.post && !p.draft,
-    since: p.lastHead || undefined, round: p.lastRound + 1, posted: p.posted, models: A.models,
+    since: p.lastHead || undefined, round: p.lastRound + 1, posted: p.posted, voice: A.voice, models: A.models,
   })
   return Object.assign({ number: p.number, author: p.author, title: p.title, draft: p.draft }, r || { error: 'review returned nothing' })
 })

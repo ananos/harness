@@ -1,7 +1,7 @@
 export const meta = {
   name: 'review',
   description: 'Review a PR the way the Claude Code team does: parallel finders, a vote per finding, a risk tier, a report; with fix:true it fixes and re-reviews until clean; posts only on post:true',
-  whenToUse: 'A PR or branch someone else wrote, or your own before asking for a person. Args: PR number, branch, or {target, base, depth, fix, since, round, posted, post, models}. Writes ~/.claude/harness/reports/review-*.md. /review-sweep runs it over every open PR.',
+  whenToUse: 'A PR or branch someone else wrote, or your own before asking for a person. Args: PR number, branch, or {target, base, depth, fix, since, round, posted, post, voice, models}. voice names a skill the posted review is written with. Writes ~/.claude/harness/reports/review-*.md. /review-sweep runs it over every open PR.',
   phases: [
     { title: 'Scope', detail: 'sonnet reads the diff, intent, CLAUDE.md and REVIEW.md; sets the risk tier; on a re-review classifies every earlier finding' },
     { title: 'Find', detail: 'opus finders hunt bugs in parallel; a separate security lane; a verifier checks the description against the code' },
@@ -30,9 +30,12 @@ export const meta = {
 // one and the PR never converges.
 
 const A = typeof args === 'string' || typeof args === 'number' ? { target: String(args) } : (args || {})
+// voice names a skill; the posted review is written in it, as a reviewer's
+// notes rather than labelled blocks. Writing in a voice needs more than haiku.
+const VOICE = typeof A.voice === 'string' && /^[\w-]+$/.test(A.voice) ? A.voice : ''
 const M = Object.assign({
   scope: 'sonnet', tier: 'sonnet', second: 'opus', finder: 'opus', security: 'opus', verify: 'sonnet',
-  classify: 'sonnet', merge: 'haiku', voter: 'sonnet', fix: 'sonnet', escalate: 'opus', report: 'haiku', post: 'haiku',
+  classify: 'sonnet', merge: 'haiku', voter: 'sonnet', fix: 'sonnet', escalate: 'opus', report: 'haiku', post: VOICE ? 'sonnet' : 'haiku',
 }, A.models || {})
 const DEPTH = A.depth || 'standard'
 const SHAPE = { quick: { finders: 2, voters: 1 }, standard: { finders: 4, voters: 3 }, deep: { finders: 6, voters: 5 } }[DEPTH]
@@ -461,28 +464,46 @@ const report = await agent(
 let postResult = null
 if (A.post && scope.pr && scope.authorIsPerson && (open.length || fixed.length || stillOpen.length || settled.length)) {
   const tag = f => f.severity === 'important' ? '[Important]' : f.severity === 'pre-existing' ? '[Pre-existing]' : '[Nit]'
-  postResult = await agent(
-    `Post the review to PR #${scope.pr} of ${scope.repo} as ONE review with inline comments and event COMMENT, never APPROVE or REQUEST_CHANGES: ` +
-    `\`gh api repos/${scope.repo}/pulls/${scope.pr}/reviews\` with commit_id ${head}. Markdown, no emoji, no em-dashes.\n` +
-    'Body, in this order, leaving out a section that would be empty:\n' +
-    `1. "${summary}" then the tier line: tier ${risk}, ${approvals} human approval(s) required, an agent finding never counts as one.\n` +
-    '2. "Findings:" one line per new finding: severity, file:line, the defect in a few words.\n' +
-    (stillOpen.length ? '3. "Still open since <sha7>:" one line per item below, with where it stands now.\n' : '') +
-    (settled.length ? `4. "Settled:" one line per item below (fixed at line, or gone), then on its own line exactly: <!-- settled: ${settled.map(x => x.key).join(' | ')} -->\n` : '') +
-    (verify.verified.length ? '5. "Verified:" one line per claim with its file:line.\n' : '') +
-    (verify.checks.length ? '6. "Checks run:" one line per command and result.\n' : '') +
-    (verify.notChecked.length ? '7. "Not checked:" one line per entry.\n' : '') +
-    (fixed.length ? '8. "Fixed by the agent:" the keys, one per line.\n' : '') +
-    (reconsider ? '9. Say that this is the third round and suggest the author reconsider the approach rather than fix one more line.\n' : '') +
-    'Do not repeat a finding\'s text in the body and do not restate the diff.\n' +
-    'One inline comment per new finding on its file and line, in this shape: first line exactly `<!-- finding: KEY -->`; then the tag and the defect in one sentence; ' +
-    '"Failure:" the scenario; "Evidence:" the quoted code; "Class of bug:" when set. A one-line fix only when it is not obvious.\n' +
-    (stillOpen.length ? 'One inline comment per still-open item on the line it now stands at, when that line is in the diff: first line `<!-- finding: KEY -->`, then the tag and "Still open since <sha7>:" and the summary and note. An item whose line is not in the diff is listed in the body only.\n' : '') +
-    'Post nothing else.\n' +
+  const data =
     `New findings (KEY, tag, then the finding):\n${JSON.stringify(open.map(f => Object.assign({ KEY: key(f), tag: tag(f) }, f)), null, 1)}\n` +
     (stillOpen.length ? `Still open:\n${JSON.stringify(stillOpen.map(x => ({ KEY: x.key, tag: x.severity === 'important' ? '[Important]' : '[Nit]', sha: x.sha, file: x.atFile, line: x.atLine, summary: x.summary, note: x.note })), null, 1)}\n` : '') +
-    (settled.length ? `Settled:\n${JSON.stringify(settled.map(x => ({ KEY: x.key, status: x.status, file: x.atFile, line: x.atLine, note: x.note })), null, 1)}\n` : ''),
-    { label: 'post', schema: POSTED_OUT, model: M.post, effort: 'low' })
+    (settled.length ? `Settled:\n${JSON.stringify(settled.map(x => ({ KEY: x.key, status: x.status, file: x.atFile, line: x.atLine, note: x.note })), null, 1)}\n` : '')
+  const head0 = `Post the review to PR #${scope.pr} of ${scope.repo} as ONE review with inline comments and event COMMENT, never APPROVE or REQUEST_CHANGES: ` +
+    `\`gh api repos/${scope.repo}/pulls/${scope.pr}/reviews\` with commit_id ${head}. Markdown, no emoji, no em-dashes.\n`
+  const markers =
+    'Every inline comment starts with a line exactly `<!-- finding: KEY -->` and the tag, on the file and line given; a still-open item goes on the line it now stands at when that line is in the diff, and otherwise only in the body. ' +
+    (settled.length ? `The body ends with, on its own line exactly: <!-- settled: ${settled.map(x => x.key).join(' | ')} -->. ` : '') +
+    'Post nothing else.\n'
+  const prompt = VOICE
+    ? head0 +
+      `Load the \`${VOICE}\` skill first and write everything in that voice, as a reviewer's notes to ${scope.author}, not as a form.\n` +
+      `Body: open by addressing the author; then the verdict in one sentence ("${summary}", tier ${risk}, ${approvals} human approval(s) still required); ` +
+      'then, each only when it has something: one line per new finding with file:line and the point in a few words; the still-open items with the commit they were raised at; what was settled; what you verified, in a few lines; what you did not check. ' +
+      (fixed.length ? 'Name the keys the agent fixed. ' : '') +
+      (reconsider ? 'Say that this is the third round and that stepping back from the approach may serve better than one more fix. ' : '') +
+      'No sentence telling the author what to do with the findings in general; the weight of each one is said on the finding.\n' +
+      'Inline comment: after the marker and the tag, the defect and what it does to a user or a reader, in one or two sentences of prose. Quote code only when the line itself does not show it. Suggest a change only when it is not obvious, in one line. ' +
+      'Close with the weight: for a nit, that it is fine as a follow-up or up to the author; for an important one, that it should go in before the merge. For a still-open item, say "still open since <sha7>" and where it stands now. Nothing restates the diff.\n' +
+      markers + data
+    : head0 +
+      'Body, in this order, leaving out a section that would be empty:\n' +
+      `1. "${summary}" then the tier line: tier ${risk}, ${approvals} human approval(s) required, an agent finding never counts as one.\n` +
+      '2. "Findings:" one line per new finding: severity, file:line, the defect in a few words.\n' +
+      (stillOpen.length ? '3. "Still open since <sha7>:" one line per item below, with where it stands now.\n' : '') +
+      (settled.length ? '4. "Settled:" one line per item below (fixed at line, or gone).\n' : '') +
+      (verify.verified.length ? '5. "Verified:" one line per claim with its file:line.\n' : '') +
+      (verify.checks.length ? '6. "Checks run:" one line per command and result.\n' : '') +
+      (verify.notChecked.length ? '7. "Not checked:" one line per entry.\n' : '') +
+      (fixed.length ? '8. "Fixed by the agent:" the keys, one per line.\n' : '') +
+      (reconsider ? '9. Say that this is the third round and suggest the author reconsider the approach rather than fix one more line.\n' : '') +
+      'Do not repeat a finding\'s text in the body and do not restate the diff.\n' +
+      'One inline comment per new finding, in this shape: the marker and the tag, then the defect in one sentence; ' +
+      '"Failure:" the scenario; "Evidence:" the quoted code; "Class of bug:" when set. A one-line fix only when it is not obvious. ' +
+      (stillOpen.length ? 'A still-open item reads "Still open since <sha7>:" then the summary and the note. ' : '') +
+      markers + data
+  postResult = await agent(prompt +
+    (VOICE ? `\nVerified by the workflow: ${JSON.stringify(verify.verified)}\nNot checked: ${JSON.stringify(verify.notChecked)}\n` : ''),
+    { label: 'post', schema: POSTED_OUT, model: M.post, effort: VOICE ? 'medium' : 'low' })
 }
 
 return {
@@ -510,4 +531,5 @@ return {
   report: report && report.path,
   posted: postResult ? postResult.posted : false,
   postedKeys: posted.concat(open.map(key)),
+  voice: VOICE,
 }
