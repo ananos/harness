@@ -460,9 +460,12 @@ const report = await agent(
   { label: 'report', schema: WRITTEN, model: M.report, effort: 'low' })
 
 // Posting is the only outward step. It needs an explicit post:true, an open
-// PR, a person as author, and something to say.
+// PR and a person as author. A clean review is posted too: its verdict and
+// what was verified and not checked are what the author needs to read, and
+// a review that says nothing when it found nothing cannot be told from one
+// that never ran.
 let postResult = null
-if (A.post && scope.pr && scope.authorIsPerson && (open.length || fixed.length || stillOpen.length || settled.length)) {
+if (A.post && scope.pr && scope.authorIsPerson) {
   const tag = f => f.severity === 'important' ? '[Important]' : f.severity === 'pre-existing' ? '[Pre-existing]' : '[Nit]'
   const data =
     `New findings (KEY, tag, then the finding):\n${JSON.stringify(open.map(f => Object.assign({ KEY: key(f), tag: tag(f) }, f)), null, 1)}\n` +
@@ -474,8 +477,10 @@ if (A.post && scope.pr && scope.authorIsPerson && (open.length || fixed.length |
     'Every inline comment starts with a line exactly `<!-- finding: KEY -->` and the tag, on the file and line given; a still-open item goes on the line it now stands at when that line is in the diff, and otherwise only in the body. ' +
     (settled.length ? `The body ends with, on its own line exactly: <!-- settled: ${settled.map(x => x.key).join(' | ')} -->. ` : '') +
     'Post nothing else.\n'
+  const cleanNote = open.length || stillOpen.length ? '' :
+    'There is no finding to post inline; the body alone is the review, and it must say plainly that the agent found nothing to fix and that this is not an approval. '
   const prompt = VOICE
-    ? head0 +
+    ? head0 + cleanNote +
       `Load the \`${VOICE}\` skill first and write everything in that voice, as a reviewer's notes to ${scope.author}, not as a form.\n` +
       `Body: open by addressing the author; then the verdict in one sentence ("${summary}", tier ${risk}, ${approvals} human approval(s) still required); ` +
       'then, each only when it has something: one line per new finding with file:line and the point in a few words; the still-open items with the commit they were raised at; what was settled; what you verified, in a few lines; what you did not check. ' +
@@ -485,7 +490,7 @@ if (A.post && scope.pr && scope.authorIsPerson && (open.length || fixed.length |
       'Inline comment: after the marker and the tag, the defect and what it does to a user or a reader, in one or two sentences of prose. Quote code only when the line itself does not show it. Suggest a change only when it is not obvious, in one line. ' +
       'Close with the weight: for a nit, that it is fine as a follow-up or up to the author; for an important one, that it should go in before the merge. For a still-open item, say "still open since <sha7>" and where it stands now. Nothing restates the diff.\n' +
       markers + data
-    : head0 +
+    : head0 + cleanNote +
       'Body, in this order, leaving out a section that would be empty:\n' +
       `1. "${summary}" then the tier line: tier ${risk}, ${approvals} human approval(s) required, an agent finding never counts as one.\n` +
       '2. "Findings:" one line per new finding: severity, file:line, the defect in a few words.\n' +

@@ -139,8 +139,11 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
   assert.equal(byLabel(bot.calls, /^post$/).length, 0)
   assert.match(bot.calls.find(c => c.label === 'report').prompt, /not a person/)
   const clean = await run('review', { target: '42', post: true }, responder({}))
-  assert.equal(byLabel(clean.calls, /^post$/).length, 0)
-  console.log('ok   review: posts only on post:true, open PR, person author, something to say')
+  assert.equal(byLabel(clean.calls, /^post$/).length, 1) // a clean review posts its verdict and what it checked
+  assert.match(clean.calls.find(c => c.label === 'post').prompt, /found nothing to fix and that this is not an approval/)
+  assert.match(clean.calls.find(c => c.label === 'post').prompt, /never APPROVE/)
+  assert.equal(clean.result.posted, true)
+  console.log('ok   review: posts on post:true, open PR, person author; a clean review posts its verdict')
 }
 
 // 7. later rounds: diff-only since a sha, earlier postings handed to merge, round cap
