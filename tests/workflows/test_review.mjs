@@ -246,6 +246,34 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
   console.log('ok   review: rebase reviews the full diff; contradicted claims are nits; verified and not-checked reach the report')
 }
 
+// 7d. voice: the posted review is written with a named skill as a reviewer's notes; the markers stay; nothing else changes
+{
+  const prev = [{ key: 'a.go:1: x', file: 'a.go', line: 1, severity: 'nit', summary: 'x', sha: 'aaaaaaa0000' }]
+  const sc = Object.assign({}, scope, { previous: prev })
+  const r = responder({ scope: sc, finds: () => ({ findings: [bug('b.go', 'y')] }) })
+  const { result, calls } = await run('review', { target: '42', since: 'deadbeef', round: 2, post: true, voice: 'myvoice' }, r)
+  const post = calls.find(c => c.label === 'post')
+  assert.equal(post.opts.model, 'sonnet')
+  assert.match(post.prompt, /Load the `myvoice` skill first/)
+  assert.match(post.prompt, /reviewer's notes to someone/)
+  assert.match(post.prompt, /<!-- finding: KEY -->/)
+  assert.match(post.prompt, /<!-- settled: a\.go:1: x -->/)
+  assert.match(post.prompt, /never APPROVE/)
+  assert.doesNotMatch(post.prompt, /"Failure:"/)
+  assert.doesNotMatch(post.prompt, /No sentence telling the author what to do with the findings in general[\s\S]*Findings:" one line/)
+  assert.equal(result.voice, 'myvoice')
+  assert.ok(calls.filter(c => /^(finder|vote|verify|classify)/.test(c.label)).every(c => !/myvoice/.test(c.prompt)))
+  const plain = await run('review', { target: '42', post: true }, responder({ finds: () => ({ findings: [bug('b.go', 'y')] }) }))
+  const p2 = plain.calls.find(c => c.label === 'post')
+  assert.equal(p2.opts.model, 'haiku')
+  assert.doesNotMatch(p2.prompt, /Load the/)
+  assert.match(p2.prompt, /"Failure:"/)
+  assert.equal(plain.result.voice, '')
+  const bad = await run('review', { target: '42', post: true, voice: '../x' }, responder({ finds: () => ({ findings: [bug('b.go', 'y')] }) }))
+  assert.equal(bad.result.voice, '')
+  console.log('ok   review: voice writes the posted review with a skill, keeps the markers, touches nothing else')
+}
+
 // 7c. important needs a majority of confirming voters who would block the merge on it alone
 {
   const finds = () => ({ findings: [bug('a.go', 'theoretical race'), bug('b.go', 'drops every request')] })
