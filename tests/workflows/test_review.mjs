@@ -140,9 +140,50 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
     responder({ finds: () => ({ findings: [bug('a.go', 'x')] }) }))
   assert.match(calls.find(c => c.label === 'finder-0-r3').prompt, /git diff deadbeef\.\.\.abc123def456789/)
   assert.match(calls.find(c => c.label === 'merge-r3').prompt, /already posted/)
-  assert.equal(result.reconsider, false) // no fix loop: a single pass never asks to reconsider
+  assert.equal(result.reconsider, true) // third manual round with an important finding left: ask to reconsider
+  assert.match(calls.find(c => c.label === 'report').prompt, /reconsider the approach/)
   assert.deepEqual(result.postedKeys, ['a.go:1: old', 'a.go:1: x'])
-  console.log('ok   review: diff-only re-review, no repeats')
+  const r2 = await run('review', { target: '42', since: 'deadbeef', round: 2 },
+    responder({ finds: () => ({ findings: [bug('a.go', 'x')] }) }))
+  assert.equal(r2.result.reconsider, false)
+  console.log('ok   review: diff-only re-review, no repeats, round cap on manual rounds')
+}
+
+// 7b. later rounds see what earlier rounds asked for; a finding against that is a design disagreement, a nit for a person
+{
+  const sc = Object.assign({}, scope, { priorFindings: ['receiver.py:296: the cap check and the create are not atomic; take a lock'] })
+  const finds = () => ({ findings: [
+    bug('receiver.py', 'the lock serializes every delivery', 'design'),
+    bug('receiver.py', 'ignores the return value of create'),
+  ] })
+  const { result, calls } = await run('review', { target: '42', since: 'deadbeef', round: 2 }, responder({ scope: sc, finds }))
+  assert.match(calls.find(c => c.label === 'finder-0-r2').prompt, /Earlier rounds asked for these changes/)
+  assert.match(calls.find(c => c.label === 'finder-0-r2').prompt, /take a lock/)
+  assert.match(calls.find(c => c.label === 'tier').prompt, /kind=design/)
+  assert.match(byLabel(calls, /^vote-/)[0].prompt, /block the merge on this alone/)
+  const design = result.findings.find(f => f.kind === 'design')
+  assert.equal(design.severity, 'nit')
+  assert.match(design.summary, /^Design disagreement with an earlier round: the lock/)
+  assert.equal(result.findings.find(f => f.kind === 'bug').severity, 'important')
+  assert.match(calls.find(c => c.label === 'report').prompt, /2 open findings, 1 important/)
+  const first = await run('review', '42', responder({ finds }))
+  assert.doesNotMatch(first.calls.find(c => c.label === 'finder-0-r1').prompt, /Earlier rounds/)
+  assert.match(first.calls.find(c => c.label === 'scope').prompt, /priorFindings: empty/)
+  console.log('ok   review: later rounds carry the earlier findings; disagreeing with one is a design nit')
+}
+
+// 7c. important needs a majority of confirming voters who would block the merge on it alone
+{
+  const finds = () => ({ findings: [bug('a.go', 'theoretical race'), bug('b.go', 'drops every request')] })
+  const respond = responder({ finds })
+  const { result } = await run('review', '42', ({ label, prompt }) => {
+    const v = label.match(/^vote-/)
+    if (v) return { real: true, reason: 'r', severity: 'important', blocking: /drops every request/.test(prompt) }
+    return respond({ label, prompt })
+  })
+  const by = Object.fromEntries(result.findings.map(f => [f.file, f.severity]))
+  assert.deepEqual(by, { 'a.go': 'nit', 'b.go': 'important' })
+  console.log('ok   review: important only when the voters would block on it')
 }
 
 // 8. fix loop: fixer runs on important findings, the new diff is re-reviewed, converges
