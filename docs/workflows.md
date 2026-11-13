@@ -189,7 +189,8 @@ does code review][ccr]), scaled to one person's repos.
    whether a person must read it regardless. A touched CI workflow file or
    a path the repo marks sensitive forces `high`. Tier sets the human
    approvals the report asks for: 0, 1 or 2. An agent's finding never
-   counts as an approval. Everything quoted from the PR goes into the
+   counts as an approval. The PR body is quoted verbatim in the brief
+   every finder and the verifier get. Everything quoted from the PR goes into the
    brief as data to review, never as instructions.
    On a re-review the scope step also collects the findings earlier rounds
    left on the PR (each inline comment carries a `<!-- finding: KEY -->`
@@ -252,8 +253,10 @@ does code review][ccr]), scaled to one person's repos.
    labelled shape: the defect and its effect in a sentence or two, code
    quoted only when the line does not show it, a change suggested only
    when it is not obvious, and the weight of each finding said at its end.
-   The markers, the tags and the still-open logic stay the same, and
-   nothing before the posting step sees the skill.
+   The verdict is said in that voice from the facts, and the body never
+   names a risk tier, an approval count or an agent, since the review is
+   posted as the reviewer. The markers, the tags and the still-open logic
+   stay the same, and nothing before the posting step sees the skill.
 
 Manual re-review after the author pushes: `/review {"target": 42,
 "since": "<last reviewed sha>", "round": 2, "posted": [...]}`, where
