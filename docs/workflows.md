@@ -197,11 +197,18 @@ does code review][ccr]), scaled to one person's repos.
    lines) and must cite a file, a line and quoted evidence. A separate
    security lane runs alongside. Findings tagged style, diagnostics or
    cleanup are dropped in code. A cheap agent merges duplicates and drops
-   anything in `posted` from an earlier round.
+   anything in `posted` from an earlier round. On a later round the brief
+   lists what earlier rounds asked for, read from the inline comments
+   already on the PR. A defect that follows from doing what an earlier
+   round asked is tagged `design`: it is a disagreement between rounds for
+   a person to settle, never a new important finding.
 3. **Vote.** Each candidate goes to voters with distinct lenses (refute,
    reproduce, intent, blast radius, history). It survives only with a
-   majority. Voters re-tag severity, so a defect that predates the PR
-   comes out as `pre-existing` rather than the author's fault.
+   majority. Each voter also says whether it would block the merge on this
+   finding alone; `important` needs a majority of those, otherwise the
+   finding is a nit. Voters re-tag severity, so a defect that predates the
+   PR comes out as `pre-existing` rather than the author's fault, and a
+   `design` finding comes out as a nit.
 4. **Fix** (only with `{fix: true}`). A fixer commits the important
    findings as fixups on the branch and runs the gate; a finding that
    needs a design decision, a public interface or a sensitive path is left
@@ -224,7 +231,9 @@ does code review][ccr]), scaled to one person's repos.
 Manual re-review after the author pushes: `/review {"target": 42,
 "since": "<last reviewed sha>", "round": 2, "posted": [...]}`, where
 `posted` is the `postedKeys` from the previous result. `/review-sweep`
-does this bookkeeping for you.
+does this bookkeeping for you. A third manual round that still has an
+important finding asks the author to reconsider the approach, the same as
+the fix loop does.
 
 ## How /review-sweep works
 
