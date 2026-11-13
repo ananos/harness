@@ -18,6 +18,12 @@ export const meta = {
 // risk tier, an agent's approval never counts as a person's, the summary
 // starts with a count, re-review is diff-only with no repeats, and after
 // three rounds the author is asked to reconsider the approach.
+//
+// Later rounds also see what earlier rounds asked for. A defect that follows
+// from doing what an earlier round asked is a design disagreement for a
+// person, not a new important finding, and important needs voters who would
+// block the merge on it alone. Without that, each round reviews the fix of
+// the previous one and the PR never converges.
 
 const A = typeof args === 'string' || typeof args === 'number' ? { target: String(args) } : (args || {})
 const M = Object.assign({
@@ -55,6 +61,7 @@ const SCOPE = {
     ciFiles: { type: 'array', items: { type: 'string' }, description: 'touched CI workflow files' },
     testPlan: { type: 'string', description: 'the Testing section of the PR body, or empty' },
     revertPlan: { type: 'string', description: 'the How to revert section of the PR body, or empty' },
+    priorFindings: { type: 'array', items: { type: 'string' }, description: 'one line per inline review comment an earlier round left on the PR, as file:line: first sentence; empty on a first round' },
   },
   required: ['repo', 'pr', 'head', 'base', 'title', 'intent', 'author', 'authorIsPerson', 'files', 'lines', 'sensitive', 'ciFiles'],
 }
@@ -84,7 +91,7 @@ const FINDING = {
     scenario: { type: 'string', description: 'concrete input or state that produces the wrong result' },
     evidence: { type: 'string', description: 'the lines of code that show it, quoted' },
     severity: { type: 'string', enum: ['important', 'nit', 'pre-existing'] },
-    kind: { type: 'string', enum: ['bug', 'security', 'style', 'diagnostics', 'cleanup'] },
+    kind: { type: 'string', enum: ['bug', 'security', 'design', 'style', 'diagnostics', 'cleanup'], description: 'design: a disagreement with what an earlier round asked for' },
     classOf: { type: 'string', description: 'the class of bug, so the author fixes every instance; empty when it is a one-off' },
   },
   required: ['file', 'summary', 'scenario', 'evidence', 'severity', 'kind'],
@@ -108,8 +115,9 @@ const VOTE = {
     real: { type: 'boolean', description: 'true only when you confirmed the scenario fails' },
     reason: { type: 'string' },
     severity: { type: 'string', enum: ['important', 'nit', 'pre-existing'], description: 'your own tag for it' },
+    blocking: { type: 'boolean', description: 'true when you would block the merge on this alone: a user or operator hits it in normal operation, or it loses data, access or work; a window that needs several things to go wrong and heals by itself is not blocking' },
   },
-  required: ['real', 'reason', 'severity'],
+  required: ['real', 'reason', 'severity', 'blocking'],
 }
 const FIXED = {
   type: 'object',
@@ -146,7 +154,8 @@ const scope = await agent(
   '- Read CLAUDE.md or AGENTS.md at the root. Find every REVIEW.md whose directory contains a touched file and return its contents.\n' +
   '- gate: `make agent-gate` if it exists, else the build, lint and test commands for what the PR touches joined with &&, else empty.\n' +
   '- A touched path is sensitive when REVIEW.md, CODEOWNERS or CLAUDE.md say so, or when it is auth, billing, tokens, secrets, the updater, release or install scripts. Any file under .github/workflows is a CI file.\n' +
-  '- Pull the Testing and How to revert sections from the PR body when they exist.',
+  '- Pull the Testing and How to revert sections from the PR body when they exist.\n' +
+  (A.since ? '- priorFindings: the inline review comments already on the PR from the account `gh api user --jq .login` is logged in as (`gh api repos/<repo>/pulls/<n>/comments --paginate`), one line each as file:line: first sentence, oldest first.' : '- priorFindings: empty.'),
   { label: 'scope', schema: SCOPE, model: M.scope, effort: 'low' })
 if (!scope) throw new Error('scope agent returned nothing')
 
@@ -156,11 +165,15 @@ const briefFor = (since, head) =>
   (scope.testPlan ? `Tested: ${scope.testPlan}\n` : 'Tested: the PR does not say.\n') +
   `Full diff: \`git diff ${scope.base}...${head}\` (${scope.lines} lines over ${scope.files.length} files)\n` +
   (since ? `New in this round: \`git diff ${since}...${head}\`. Review only the new commits, but read the rest of the PR and the repo for context.\n` : '') +
+  (prior.length ? 'Earlier rounds asked for these changes; the new commits are the author\'s response to them:\n' +
+    prior.map(x => `- ${x}`).join('\n') + '\n' +
+    'A defect that follows directly from doing what an earlier round asked is a disagreement between rounds, not a new bug: report it with kind=design, name the earlier finding, and leave it for a person. Never re-report a listed finding in other words.\n' : '') +
   (scope.reviewMd ? `\nREVIEW.md for these paths:\n${scope.reviewMd}\n` : '') +
   (scope.skip && scope.skip.length ? `Skip: ${scope.skip.join(', ')}\n` : '')
 
 // The change sets the tier, not the author. A second, different model asks
 // whether a person is needed anyway.
+const prior = Array.isArray(scope.priorFindings) ? scope.priorFindings : []
 const brief0 = briefFor(A.since, scope.head)
 const [tier, second] = await parallel([
   () => agent(
@@ -190,7 +203,7 @@ const ANGLES = [
   'Read every changed line of configuration, build, packaging and workflow: what does it misroute, mis-pin or expose?',
 ]
 const HOLD_FIND = 'Report only findings with a file, a line and quoted evidence; never a guess from a name. ' +
-  'Tag severity: important for a defect the change introduces, nit for a small one, pre-existing for one that was already there. ' +
+  'Tag severity: important for a defect the change introduces that a user or operator would hit in normal operation, nit for a small or unlikely one, pre-existing for one that was already there. ' +
   'Tag kind honestly; style, diagnostics and cleanup are dropped later, so do not dress them up as bugs. ' +
   'Return an empty list when there is nothing to find. Do not change files.'
 const LENSES = [
@@ -217,7 +230,7 @@ async function pass(round, since, head, posted) {
     { phase: 'Find', label: `security-${tag}`, schema: FINDINGS, model: M.security })
   // Barrier: dedup needs every finder's list at once.
   const found = (await parallel(finders.concat([securityLane]))).filter(Boolean).flatMap(r => r.findings)
-  const kept = found.filter(f => f.kind === 'bug' || f.kind === 'security')
+  const kept = found.filter(f => f.kind === 'bug' || f.kind === 'security' || f.kind === 'design')
 
   let merged = { findings: [], droppedAsRepeat: 0 }
   if (kept.length) {
@@ -233,15 +246,19 @@ async function pass(round, since, head, posted) {
   const voted = await pipeline(merged.findings,
     (f, _, i) => parallel(LENSES.slice(0, SHAPE.voters).map(l => () => agent(
       `${brief}\nAn independent reviewer claims this defect:\n${key(f)}\n` +
-      `Scenario: ${f.scenario}\nEvidence:\n${f.evidence}\n\n${l.prompt} Do not change files.`,
+      `Scenario: ${f.scenario}\nEvidence:\n${f.evidence}\n\n${l.prompt} Also say whether you would block the merge on this alone. Do not change files.`,
       { phase: 'Vote', label: `vote-${i}-${l.name}-${tag}`, schema: VOTE, model: M.voter, effort: 'medium' })))
       .then(votes => {
         const v = votes.filter(Boolean)
         const yes = v.filter(x => x.real)
         const pre = yes.some(x => x.severity === 'pre-existing')
+        // Important needs a majority of the confirming voters to block the merge on it alone.
+        const blocking = yes.filter(x => (x.blocking === undefined ? x.severity === 'important' : x.blocking)).length > yes.length / 2
+        const design = f.kind === 'design'
         return Object.assign({}, f, {
           round, votes: yes.length, of: v.length, agreed: yes.length >= NEEDED,
-          severity: pre ? 'pre-existing' : (yes.filter(x => x.severity === 'important').length > yes.length / 2 ? 'important' : f.severity),
+          severity: pre ? 'pre-existing' : design ? 'nit' : blocking ? 'important' : (f.severity === 'important' ? 'nit' : f.severity),
+          summary: design ? `Design disagreement with an earlier round: ${f.summary}` : f.summary,
           reasons: v.map(x => x.reason),
         })
       }))
@@ -277,7 +294,11 @@ while (true) {
   const minor = r.agreed.filter(f => f.severity !== 'important')
   log(`round ${round}: ${r.agreed.length} agreed by ${NEEDED}/${SHAPE.voters} voters, ${important.length} important`)
   open.push(...minor)
-  if (!FIX || important.length === 0) { open.push(...important); break }
+  if (!FIX || important.length === 0) {
+    open.push(...important)
+    if (important.length && round >= ROUND_CAP) reconsider = true   // a manual third round asks to reconsider too
+    break
+  }
   if (round >= ROUND_CAP) { open.push(...important); reconsider = true; break }
 
   const keys = important.map(key)
