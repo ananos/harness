@@ -54,6 +54,7 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
   assert.equal(byLabel(calls, /^classify$/).length, 0)
   assert.equal(result.round, 1)
   assert.equal(modelOf(calls, 'scope'), 'sonnet')
+  assert.match(calls.find(c => c.label === 'scope').prompt, /git fetch origin <base>/)
   assert.equal(modelOf(calls, 'tier'), 'sonnet')
   assert.equal(modelOf(calls, 'second-opinion'), 'opus')
   assert.equal(byLabel(calls, /^finder-/).length, 4)

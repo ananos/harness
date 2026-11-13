@@ -188,7 +188,7 @@ const scope = await agent(
   `Scope a code review. Target: ${target}${A.base ? `, base ${A.base}` : ''}. Change nothing.\n` +
   '- If the target is a PR number or an open PR exists for the branch, read its title, body, author, draft state and head with `gh pr view --json`. Otherwise use the branch and its upstream default base.\n' +
   '- authorIsPerson: `gh api users/<login> --jq .type` is `User`. Bots, apps and organizations are not people.\n' +
-  '- Diff against the merge-base with the base. List the files and count the changed lines.\n' +
+  '- Fetch the base branch first (`git fetch origin <base>`) and return base as `origin/<base>`, so a stale local branch never widens the diff. Diff against the merge-base with it. List the files and count the changed lines.\n' +
   '- Read CLAUDE.md or AGENTS.md at the root. Find every REVIEW.md whose directory contains a touched file and return its contents.\n' +
   '- gate: `make agent-gate` if it exists, else the build, lint and test commands for what the PR touches joined with &&, else empty.\n' +
   '- A touched path is sensitive when REVIEW.md, CODEOWNERS or CLAUDE.md say so, or when it is auth, billing, tokens, secrets, the updater, release or install scripts. Any file under .github/workflows is a CI file.\n' +
