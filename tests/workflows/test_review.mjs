@@ -4,7 +4,7 @@ import { run, byLabel, modelOf } from './stub.mjs'
 const scope = {
   repo: 'brig-sh/brig', pr: 42, head: 'abc123def456789', base: 'origin/main', branch: 'feat', title: 'feat: Add thing',
   intent: 'adds a thing', author: 'someone', authorIsPerson: true, draft: false, files: ['a.go', 'b.go'], lines: 120,
-  gate: 'make test', reviewMd: '', skip: [], sensitive: [], ciFiles: [], testPlan: 'go test', revertPlan: 'revert',
+  gate: 'make test', reviewMd: '', skip: [], sensitive: [], ciFiles: [], testPlan: 'go test', revertPlan: 'revert', body: 'the PR body text',
 }
 const bug = (file, summary, kind = 'bug', severity = 'important') =>
   ({ file, line: 1, summary, scenario: 's', evidence: 'e', severity, kind })
@@ -143,6 +143,10 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
   assert.match(clean.calls.find(c => c.label === 'post').prompt, /found nothing to fix and that this is not an approval/)
   assert.match(clean.calls.find(c => c.label === 'post').prompt, /never APPROVE/)
   assert.equal(clean.result.posted, true)
+  const voiced = await run('review', { target: '42', post: true, voice: 'myvoice' }, responder({}))
+  const vp = voiced.calls.find(c => c.label === 'post').prompt
+  assert.match(vp, /say in your own words that you found nothing to fix/)
+  assert.doesNotMatch(vp, /human approval|the agent found|not an approval/)
   console.log('ok   review: posts on post:true, open PR, person author; a clean review posts its verdict')
 }
 
@@ -262,6 +266,10 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
   assert.match(post.prompt, /<!-- finding: KEY -->/)
   assert.match(post.prompt, /<!-- settled: a\.go:1: x -->/)
   assert.match(post.prompt, /never APPROVE/)
+  assert.match(post.prompt, /in your own words/)
+  assert.doesNotMatch(post.prompt, /human approval|tier medium/)
+  assert.match(calls.find(c => /^finder-0/.test(c.label)).prompt, /Description, verbatim:\n"""\nthe PR body text\n"""/)
+  assert.match(calls.find(c => /^verify-/.test(c.label)).prompt, /the PR body text/)
   assert.doesNotMatch(post.prompt, /"Failure:"/)
   assert.doesNotMatch(post.prompt, /No sentence telling the author what to do with the findings in general[\s\S]*Findings:" one line/)
   assert.equal(result.voice, 'myvoice')
