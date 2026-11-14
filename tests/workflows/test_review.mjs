@@ -289,6 +289,16 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
   const bad = await run('review', { target: '42', post: true, voice: '../x' }, responder({ finds: () => ({ findings: [bug('b.go', 'y')] }) }))
   assert.equal(bad.result.voice, '')
   console.log('ok   review: voice writes the posted review with a skill, keeps the markers, touches nothing else')
+
+// 7e. context: text from the caller reaches every finder and the verifier as quoted data
+{
+  const { calls } = await run('review', { target: '42', context: 'cargo test failed at foo; consider the lock order' }, responder({ finds: () => ({ findings: [bug('b.go', 'y')] }) }))
+  for (const c of calls.filter(c => /^(finder-|verify-|security-)/.test(c.label))) {
+    assert.match(c.prompt, /From the caller, about this PR[\s\S]*cargo test failed at foo; consider the lock order/)
+  }
+  assert.doesNotMatch(calls.find(c => c.label === 'scope').prompt, /cargo test failed/)
+  console.log('ok   review: caller context is quoted into the briefs as data')
+}
 }
 
 // 7c. important needs a majority of confirming voters who would block the merge on it alone

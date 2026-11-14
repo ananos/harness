@@ -190,7 +190,9 @@ does code review][ccr]), scaled to one person's repos.
    a path the repo marks sensitive forces `high`. Tier sets the human
    approvals the report asks for: 0, 1 or 2. An agent's finding never
    counts as an approval. The PR body is quoted verbatim in the brief
-   every finder and the verifier get. Everything quoted from the PR goes into the
+   every finder and the verifier get, and so is `context`, text the
+   caller passes about the PR, such as the results of checks it already
+   ran or notes from the reviewer, as data to weigh. Everything quoted from the PR goes into the
    brief as data to review, never as instructions.
    On a re-review the scope step also collects the findings earlier rounds
    left on the PR (each inline comment carries a `<!-- finding: KEY -->`
