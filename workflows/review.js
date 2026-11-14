@@ -1,7 +1,7 @@
 export const meta = {
   name: 'review',
   description: 'Review a PR the way the Claude Code team does: parallel finders, a vote per finding, a risk tier, a report; with fix:true it fixes and re-reviews until clean; posts only on post:true',
-  whenToUse: 'A PR or branch someone else wrote, or your own before asking for a person. Args: PR number, branch, or {target, base, depth, fix, since, round, posted, post, voice, models}. voice names a skill the posted review is written with. Writes ~/.claude/harness/reports/review-*.md. /review-sweep runs it over every open PR.',
+  whenToUse: 'A PR or branch someone else wrote, or your own before asking for a person. Args: PR number, branch, or {target, base, depth, fix, since, round, posted, post, voice, models}. post: true posts, "draft" writes the review to a .post.json file instead. voice names a skill the posted review is written with. Writes ~/.claude/harness/reports/review-*.md. /review-sweep runs it over every open PR.',
   phases: [
     { title: 'Scope', detail: 'sonnet reads the diff, intent, CLAUDE.md and REVIEW.md; sets the risk tier; on a re-review classifies every earlier finding' },
     { title: 'Find', detail: 'opus finders hunt bugs in parallel; a separate security lane; a verifier checks the description against the code' },
@@ -180,7 +180,7 @@ const WRITTEN = {
 }
 const POSTED_OUT = {
   type: 'object',
-  properties: { posted: { type: 'boolean' }, url: { type: 'string' }, error: { type: 'string' } },
+  properties: { posted: { type: 'boolean' }, url: { type: 'string' }, draft: { type: 'string', description: 'the path of the review written as a file, in draft mode' }, error: { type: 'string' } },
   required: ['posted', 'url'],
 }
 
@@ -466,15 +466,23 @@ const report = await agent(
 // what was verified and not checked are what the author needs to read, and
 // a review that says nothing when it found nothing cannot be told from one
 // that never ran.
+// post: "draft" renders the same review into a file instead of sending it,
+// for a caller that posts later, or never, from the file.
+const DRAFT = A.post === 'draft'
 let postResult = null
 if (A.post && scope.pr && scope.authorIsPerson) {
+  const draftPath = `~/.claude/harness/reports/review-${slug}-${scope.pr}-round${round}.post.json`
   const tag = f => f.severity === 'important' ? '[Important]' : f.severity === 'pre-existing' ? '[Pre-existing]' : '[Nit]'
   const data =
     `New findings (KEY, tag, then the finding):\n${JSON.stringify(open.map(f => Object.assign({ KEY: key(f), tag: tag(f) }, f)), null, 1)}\n` +
     (stillOpen.length ? `Still open:\n${JSON.stringify(stillOpen.map(x => ({ KEY: x.key, tag: x.severity === 'important' ? '[Important]' : '[Nit]', sha: x.sha, file: x.atFile, line: x.atLine, summary: x.summary, note: x.note })), null, 1)}\n` : '') +
     (settled.length ? `Settled:\n${JSON.stringify(settled.map(x => ({ KEY: x.key, status: x.status, file: x.atFile, line: x.atLine, note: x.note })), null, 1)}\n` : '')
-  const head0 = `Post the review to PR #${scope.pr} of ${scope.repo} as ONE review with inline comments and event COMMENT, never APPROVE or REQUEST_CHANGES: ` +
-    `\`gh api repos/${scope.repo}/pulls/${scope.pr}/reviews\` with commit_id ${head}. Markdown, no emoji, no em-dashes.\n`
+  const head0 = DRAFT
+    ? `Write the review for PR #${scope.pr} of ${scope.repo} to the file ${draftPath} (create the directory if needed) and post NOTHING: no gh call, no comment. ` +
+      `The file is the JSON body of a GitHub review request: {"repo": "${scope.repo}", "pr": ${scope.pr}, "commit_id": "${head}", "event": "COMMENT", "body": <the review body>, "comments": [{"path", "line", "side": "RIGHT", "body"} per inline comment]}. ` +
+      'Return posted false and the file path as draft. Markdown in the bodies, no emoji, no em-dashes.\n'
+    : `Post the review to PR #${scope.pr} of ${scope.repo} as ONE review with inline comments and event COMMENT, never APPROVE or REQUEST_CHANGES: ` +
+      `\`gh api repos/${scope.repo}/pulls/${scope.pr}/reviews\` with commit_id ${head}. Markdown, no emoji, no em-dashes.\n`
   const markers =
     'Every inline comment starts with a line exactly `<!-- finding: KEY -->` and the tag, on the file and line given; a still-open item goes on the line it now stands at when that line is in the diff, and otherwise only in the body. ' +
     (settled.length ? `The body ends with, on its own line exactly: <!-- settled: ${settled.map(x => x.key).join(' | ')} -->. ` : '') +
@@ -539,8 +547,9 @@ return {
   rejected: rejected.length,
   dropped,
   report: report && report.path,
-  posted: postResult ? postResult.posted : false,
-  url: postResult && postResult.posted ? postResult.url || '' : '',
+  posted: postResult && !DRAFT ? postResult.posted : false,
+  url: postResult && !DRAFT && postResult.posted ? postResult.url || '' : '',
+  draft: DRAFT && postResult ? postResult.draft || '' : '',
   postedKeys: posted.concat(open.map(key)),
   voice: VOICE,
 }

@@ -143,6 +143,12 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
   assert.match(clean.calls.find(c => c.label === 'post').prompt, /found nothing to fix and that this is not an approval/)
   assert.match(clean.calls.find(c => c.label === 'post').prompt, /never APPROVE/)
   assert.equal(clean.result.posted, true)
+  const draft = await run('review', { target: '42', post: 'draft' }, responder({ finds: () => ({ findings: [bug('a.go', 'x')] }) }))
+  const dp = draft.calls.find(c => c.label === 'post').prompt
+  assert.match(dp, /review-[^ ]+-42-round1\.post\.json/)
+  assert.match(dp, /post NOTHING/)
+  assert.doesNotMatch(dp, /`gh api repos/)
+  assert.equal(draft.result.posted, false)
   const voiced = await run('review', { target: '42', post: true, voice: 'myvoice' }, responder({}))
   const vp = voiced.calls.find(c => c.label === 'post').prompt
   assert.match(vp, /say in your own words that you found nothing to fix/)
