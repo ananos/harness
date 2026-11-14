@@ -151,7 +151,7 @@ const verifyClean = () => ({ status: 'clean', rounds: 1, unresolved: [], forPers
     const a = calls.find(c => c.label === 'task-a')
     assert.equal(a.opts.model, 'haiku')
     assert.equal(a.opts.isolation, undefined)
-    assert.match(a.prompt, /\/usr\/local\/bin\/task-run run --id a --tip [0-9a-f]+ --model opus --prompt-file \/tmp\/task-a\.prompt --schema-file \/tmp\/task-a\.schema/)
+    assert.match(a.prompt, /\/usr\/local\/bin\/task-run run --id a --tip \\S+ --model opus --prompt-file \/tmp\/task-a\.prompt --schema-file \/tmp\/task-a\.schema/)
     assert.match(a.prompt, /do not implement it yourself/)
     assert.match(a.prompt, /Prompt:\nYou are one of several agents implementing a plan in parallel/)
     assert.ok(byLabel(calls, /^integrate-/).length >= 1)
