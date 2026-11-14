@@ -248,7 +248,10 @@ does code review][ccr]), scaled to one person's repos.
    inline comment per finding (the defect in a sentence, the failure, the
    evidence, the class of bug when set). A still-open earlier finding is
    posted again on the line it now stands at. A bot's PR is never posted
-   to. With `voice` naming a skill, the posting agent loads it first and
+   to. With `{post: "draft"}` the same review is written to
+   `~/.claude/harness/reports/review-<repo>-<pr>-round<n>.post.json`, the
+   JSON body of a GitHub review request, and nothing is sent; a caller
+   posts it later, or keeps it. With `voice` naming a skill, the posting agent loads it first and
    writes the review as a reviewer's notes to the author instead of the
    labelled shape: the defect and its effect in a sentence or two, code
    quoted only when the line does not show it, a change suggested only
