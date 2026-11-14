@@ -14,8 +14,14 @@ export const meta = {
 
 const A = typeof args === 'string' ? { task: args } : (args || {})
 if (!A.task) throw new Error('build needs a task: pass args as a string or {task}')
+// HARNESS_TASK_RUNNER names a command that runs one task on another
+// machine: it takes the task's prompt and schema as files and the commit to
+// start from, blocks until the task is done, brings its commits into this
+// repository and prints the result. With it set, the tasks of a wave run as
+// remote jobs in parallel and a small agent here only drives the command.
+const REMOTE = process.env.HARNESS_TASK_RUNNER || ''
 const M = Object.assign({
-  recon: 'sonnet', plan: 'claude-mythos-5-1', critic: 'fable', skeleton: 'opus',
+  recon: 'sonnet', plan: 'claude-mythos-5-1', critic: 'fable', skeleton: 'opus', dispatch: 'haiku',
   complex: 'opus', menial: 'sonnet', chore: 'haiku', integrate: 'sonnet', land: 'haiku',
 }, A.models || {})
 
@@ -211,15 +217,24 @@ const failedTasks = []
 const plan_waves = waves(plan.tasks.filter(t => t.tier !== 'skeleton'))
 for (let w = 0; w < plan_waves.length; w++) {
   const wave = plan_waves[w]
-  const runTask = t => agent(
+  const taskPrompt = t =>
     `You are one of several agents implementing a plan in parallel. You work in your own git worktree.\n` +
     `First run \`git checkout -B harness/${plan.slug}/${t.id} ${tip}\` (that commit holds the skeleton and earlier waves).\n\n` +
     `Plan summary: ${plan.summary}\nInterfaces:\n${JSON.stringify(plan.interfaces || [], null, 1)}\n\n` +
     `Your task:\n${JSON.stringify(t, null, 1)}\n\n` +
     'Touch only the files your task owns unless the build forces otherwise, and report any extra file. ' +
     `Make your tests pass and keep the others building. Run \`${plan.gate}\` or its narrowest relevant part. ` +
-    `Commit as one logical commit. ${HOLD} Return done, the branch, and the full commit shas.`,
-    { phase: 'Build', label: `task-${t.id}`, schema: TASK_RESULT, model: M[t.tier] || M.menial, isolation: 'worktree' })
+    `Commit as one logical commit. ${HOLD} Return done, the branch, and the full commit shas.`
+  const runTask = t => REMOTE
+    ? agent(
+      `Run one task of a plan on a remote runner; do not implement it yourself and do not read the repository.\n` +
+      `1. Write the prompt below, verbatim, to /tmp/task-${t.id}.prompt and this JSON schema to /tmp/task-${t.id}.schema: ${JSON.stringify(TASK_RESULT)}\n` +
+      `2. Run \`${REMOTE} run --id ${t.id} --tip ${tip} --model ${M[t.tier] || M.menial} --prompt-file /tmp/task-${t.id}.prompt --schema-file /tmp/task-${t.id}.schema\` in the foreground with a long timeout; it blocks until the task is done and prints its result as JSON. If it says the task is still running, run it again.\n` +
+      '3. Return that JSON as your answer, unchanged. If the command fails, return done false with its output as notes.\n\n' +
+      `Prompt:\n${taskPrompt(t)}`,
+      { phase: 'Build', label: `task-${t.id}`, schema: TASK_RESULT, model: M.dispatch })
+    : agent(taskPrompt(t),
+      { phase: 'Build', label: `task-${t.id}`, schema: TASK_RESULT, model: M[t.tier] || M.menial, isolation: 'worktree' })
 
   let results = []
   if (wave.serial) {

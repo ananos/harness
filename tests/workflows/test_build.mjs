@@ -142,3 +142,21 @@ const verifyClean = () => ({ status: 'clean', rounds: 1, unresolved: [], forPers
   for (const c of byLabel(calls, /^(skeleton|task-|integrate-|land)/)) assert.match(c.prompt, /Stay local/, c.label)
   console.log('ok   build: every writing agent carries the stay-local rule')
 }
+
+// remote tasks: with HARNESS_TASK_RUNNER set, a wave's tasks are driven by a small dispatch agent that runs the command; nothing else changes
+{
+  process.env.HARNESS_TASK_RUNNER = '/usr/local/bin/task-run'
+  try {
+    const { calls } = await run('build', { task: 'x' }, responder(), { verify: verifyClean })
+    const a = calls.find(c => c.label === 'task-a')
+    assert.equal(a.opts.model, 'haiku')
+    assert.equal(a.opts.isolation, undefined)
+    assert.match(a.prompt, /\/usr\/local\/bin\/task-run run --id a --tip [0-9a-f]+ --model opus --prompt-file \/tmp\/task-a\.prompt --schema-file \/tmp\/task-a\.schema/)
+    assert.match(a.prompt, /do not implement it yourself/)
+    assert.match(a.prompt, /Prompt:\nYou are one of several agents implementing a plan in parallel/)
+    assert.ok(byLabel(calls, /^integrate-/).length >= 1)
+  } finally {
+    delete process.env.HARNESS_TASK_RUNNER
+  }
+  console.log('ok   build: HARNESS_TASK_RUNNER sends a wave\'s tasks to a remote runner through a dispatch agent')
+}
