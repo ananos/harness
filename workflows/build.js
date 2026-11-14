@@ -1,7 +1,7 @@
 export const meta = {
   name: 'build',
   description: 'Plan, skeleton, parallel implementation and verification of one change, on tiered models; ends with local commits',
-  whenToUse: 'A feature or fix worth a plan. Args: string task, or {task, base, gate, maxRounds, stopAfterPlan, models}. Ends before push; run /ship after.',
+  whenToUse: 'A feature or fix worth a plan. Args: string task, or {task, base, gate, maxRounds, stopAfterPlan, taskRunner, models}. Ends before push; run /ship after.',
   phases: [
     { title: 'Recon', detail: 'three sonnet readers map the repo for the task' },
     { title: 'Plan', detail: 'mythos plans, fable critiques, mythos revises once' },
@@ -14,12 +14,14 @@ export const meta = {
 
 const A = typeof args === 'string' ? { task: args } : (args || {})
 if (!A.task) throw new Error('build needs a task: pass args as a string or {task}')
-// HARNESS_TASK_RUNNER names a command that runs one task on another
-// machine: it takes the task's prompt and schema as files and the commit to
+// taskRunner (an arg) or HARNESS_TASK_RUNNER names a command that runs one
+// task on another machine: it takes the task's prompt and schema as files and the commit to
 // start from, blocks until the task is done, brings its commits into this
 // repository and prints the result. With it set, the tasks of a wave run as
 // remote jobs in parallel and a small agent here only drives the command.
-const REMOTE = process.env.HARNESS_TASK_RUNNER || ''
+// Named by the taskRunner arg, or by the environment where the script can
+// see it (the workflow sandbox may not expose process).
+const REMOTE = A.taskRunner || (typeof process !== 'undefined' && process.env ? process.env.HARNESS_TASK_RUNNER : '') || ''
 const M = Object.assign({
   recon: 'sonnet', plan: 'claude-mythos-5-1', critic: 'fable', skeleton: 'opus', dispatch: 'haiku',
   complex: 'opus', menial: 'sonnet', chore: 'haiku', integrate: 'sonnet', land: 'haiku',

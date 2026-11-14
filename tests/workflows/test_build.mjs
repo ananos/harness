@@ -159,4 +159,13 @@ const verifyClean = () => ({ status: 'clean', rounds: 1, unresolved: [], forPers
     delete process.env.HARNESS_TASK_RUNNER
   }
   console.log('ok   build: HARNESS_TASK_RUNNER sends a wave\'s tasks to a remote runner through a dispatch agent')
+
+// the taskRunner arg does the same without the environment
+{
+  const { calls } = await run('build', { task: 'x', taskRunner: '/opt/task-run' }, responder(), { verify: verifyClean })
+  const a = calls.find(c => c.label === 'task-a')
+  assert.equal(a.opts.model, 'haiku')
+  assert.match(a.prompt, /\/opt\/task-run run --id a/)
+  console.log('ok   build: the taskRunner arg selects the remote runner')
+}
 }
