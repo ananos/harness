@@ -56,7 +56,7 @@ const SCOPE = {
     branch: { type: 'string', description: 'the head branch name' },
     title: { type: 'string' },
     intent: { type: 'string', description: 'what the PR says it does and how it was tested, in a paragraph' },
-    body: { type: 'string', description: 'the PR body verbatim, cut at 4000 characters; empty when there is no PR' },
+    body: { type: 'string', description: 'the PR body verbatim, cut at 16000 characters; empty when there is no PR' },
     author: { type: 'string' },
     authorIsPerson: { type: 'boolean', description: 'gh api users/<login> says type User; false for bots and apps' },
     draft: { type: 'boolean' },
@@ -190,7 +190,7 @@ const target = A.target || 'the current branch'
 phase('Scope')
 const scope = await agent(
   `Scope a code review. Target: ${target}${A.base ? `, base ${A.base}` : ''}. Change nothing.\n` +
-  '- If the target is a PR number or an open PR exists for the branch, read its title, body, author, draft state and head with `gh pr view --json`; return the body verbatim in body, cut at 4000 characters. Otherwise use the branch and its upstream default base.\n' +
+  '- If the target is a PR number or an open PR exists for the branch, read its title, body, author, draft state and head with `gh pr view --json`; return the body verbatim in body, cut at 16000 characters. Otherwise use the branch and its upstream default base.\n' +
   '- authorIsPerson: `gh api users/<login> --jq .type` is `User`. Bots, apps and organizations are not people.\n' +
   '- Fetch the base branch first (`git fetch origin <base>`) and return base as `origin/<base>`, so a stale local branch never widens the diff. Diff against the merge-base with it. List the files and count the changed lines.\n' +
   '- Read CLAUDE.md or AGENTS.md at the root. Find every REVIEW.md whose directory contains a touched file and return its contents.\n' +
