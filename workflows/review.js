@@ -492,18 +492,35 @@ if (A.post && scope.pr && scope.authorIsPerson) {
     'There is no finding to post inline; the body alone is the review, and it must say plainly that the agent found nothing to fix and that this is not an approval. '
   // The voice is a person's: no tier, no approval count, no agent.
   const voiceClean = open.length || stillOpen.length ? '' :
-    'There is no finding to post inline; the body alone is the review: say in your own words that you found nothing to fix. '
+    'There is no finding to post inline; the body alone is the review: the verdict says you found nothing to fix. '
+  // The voiced review follows one template: a short thanks, the verdict in
+  // one sentence, Verified, Findings tagged blocking / suggestion / nit with
+  // their location, Dropped since last round, Follow-ups. It states what was
+  // done and never what was not: no tier, no approval count, no agent, no
+  // "could not verify".
+  const voiceTag = f => f.severity === 'important' ? '[blocking]' : f.severity === 'pre-existing' ? '[follow-up]' : f.kind === 'design' ? '[suggestion]' : '[nit]'
+  const voiceData =
+    `New findings (KEY, tag, then the finding):\n${JSON.stringify(open.map(f => Object.assign({ KEY: key(f), tag: voiceTag(f) }, f)), null, 1)}\n` +
+    (stillOpen.length ? `Still open:\n${JSON.stringify(stillOpen.map(x => ({ KEY: x.key, tag: x.severity === 'important' ? '[blocking]' : '[nit]', sha: x.sha, file: x.atFile, line: x.atLine, summary: x.summary, note: x.note })), null, 1)}\n` : '') +
+    (settled.length ? `Dropped since the last round:\n${JSON.stringify(settled.map(x => ({ KEY: x.key, status: x.status, file: x.atFile, line: x.atLine, note: x.note })), null, 1)}\n` : '') +
+    `Verified by the workflow (claims checked against the code, with file:line):\n${JSON.stringify(verify.verified)}\n` +
+    (verify.checks.length ? `Checks run by the workflow (command and result):\n${JSON.stringify(verify.checks)}\n` : '') +
+    (A.context ? `From the caller (test results already run, the reviewer's notes):\n"""\n${String(A.context).slice(0, 4000)}\n"""\n` : '')
   const prompt = VOICE
     ? head0 + voiceClean +
-      `Load the \`${VOICE}\` skill first and write everything in that voice, as a reviewer's notes to ${scope.author}, not as a form.\n` +
-      `Body: open by addressing the author; then the verdict in one sentence, in your own words (the facts: ${summary}). The review is posted as the reviewer, so it never mentions a risk tier, an approval count, or an agent; ` +
-      'then, each only when it has something: one line per new finding with file:line and the point in a few words; the still-open items with the commit they were raised at; what was settled; what you verified, in a few lines; what you did not check. ' +
-      (fixed.length ? 'Name the keys the agent fixed. ' : '') +
-      (reconsider ? 'Say that this is the third round and that stepping back from the approach may serve better than one more fix. ' : '') +
-      'No sentence telling the author what to do with the findings in general; the weight of each one is said on the finding.\n' +
+      `Load the \`${VOICE}\` skill first and write the body in that voice. The body follows this template exactly, in this order, leaving out a section that would be empty:\n` +
+      `1. One short greeting line thanking ${scope.author} by handle, half a sentence at most. Then the verdict in one sentence, in your own words (the facts: ${summary}).\n` +
+      '2. "Verified": one line per check that was actually done, from the lists below: a claim checked at file:line, a command run and its result, a gate or CI result from the caller. Name the path or the check. Nothing that was not done appears anywhere.\n' +
+      '3. "Findings": one line per new finding and per still-open item: the tag, then `file:line`, then the point in one or two sentences, a fix only when it is not obvious. A still-open item adds "still open since <sha7>". Sorted blocking, suggestion, nit.\n' +
+      (settled.length ? '4. "Dropped since last round": one line per item below, `file:line` and whether the new commits fixed it or the line is gone.\n' : '') +
+      '5. "Follow-ups": one line per [follow-up] item, pre-existing before this PR; the section is absent otherwise.\n' +
+      (fixed.length ? 'Name the keys the fixer changed, in Verified. ' : '') +
+      (reconsider ? 'Add one sentence after the verdict: this is the third round, and stepping back from the approach may serve better than one more fix. ' : '') +
+      'Never: a risk tier, an approval count, who should review next, what a human must do, the word agent or bot, what was not checked, could not be run or could not be verified, the process of the review itself. ' +
+      'The weight of a finding is its tag; no closing sentence about the findings in general.\n' +
       'Inline comment: after the marker and the tag, the defect and what it does to a user or a reader, in one or two sentences of prose. Quote code only when the line itself does not show it. Suggest a change only when it is not obvious, in one line. ' +
-      'Close with the weight: for a nit, that it is fine as a follow-up or up to the author; for an important one, that it should go in before the merge. For a still-open item, say "still open since <sha7>" and where it stands now. Nothing restates the diff.\n' +
-      markers + data
+      'For a still-open item, say "still open since <sha7>" and where it stands now. Nothing restates the diff.\n' +
+      markers + voiceData
     : head0 + cleanNote +
       'Body, in this order, leaving out a section that would be empty:\n' +
       `1. "${summary}" then the tier line: tier ${risk}, ${approvals} human approval(s) required, an agent finding never counts as one.\n` +
@@ -520,9 +537,7 @@ if (A.post && scope.pr && scope.authorIsPerson) {
       '"Failure:" the scenario; "Evidence:" the quoted code; "Class of bug:" when set. A one-line fix only when it is not obvious. ' +
       (stillOpen.length ? 'A still-open item reads "Still open since <sha7>:" then the summary and the note. ' : '') +
       markers + data
-  postResult = await agent(prompt +
-    (VOICE ? `\nVerified by the workflow: ${JSON.stringify(verify.verified)}\nNot checked: ${JSON.stringify(verify.notChecked)}\n` : ''),
-    { label: 'post', schema: POSTED_OUT, model: M.post, effort: VOICE ? 'medium' : 'low' })
+  postResult = await agent(prompt, { label: 'post', schema: POSTED_OUT, model: M.post, effort: VOICE ? 'medium' : 'low' })
 }
 
 return {
