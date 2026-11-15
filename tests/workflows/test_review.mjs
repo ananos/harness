@@ -151,8 +151,17 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
   assert.equal(draft.result.posted, false)
   const voiced = await run('review', { target: '42', post: true, voice: 'myvoice' }, responder({}))
   const vp = voiced.calls.find(c => c.label === 'post').prompt
-  assert.match(vp, /say in your own words that you found nothing to fix/)
-  assert.doesNotMatch(vp, /human approval|the agent found|not an approval/)
+  assert.match(vp, /the verdict says you found nothing to fix/)
+  assert.match(vp, /One short greeting line thanking/)
+  assert.match(vp, /"Verified": one line per check that was actually done/)
+  assert.match(vp, /"Findings": one line per new finding/)
+  assert.match(vp, /Never: a risk tier, an approval count/)
+  assert.doesNotMatch(vp, /human approval|the agent found|not an approval|Not checked:/)
+  // a voiced round with findings tags them in GitHub's words and names a dropped item
+  const voicedFinds = await run('review', { target: '42', post: true, voice: 'myvoice' }, responder({ finds: () => ({ findings: [bug('a.go', 'x')] }) }))
+  const vf = voicedFinds.calls.find(c => c.label === 'post').prompt
+  assert.match(vf, /"tag": "\[(blocking|nit|suggestion)\]"/)
+  assert.doesNotMatch(vf, /\[Important\]|\[Nit\]/)
   console.log('ok   review: posts on post:true, open PR, person author; a clean review posts its verdict')
 }
 
@@ -268,16 +277,18 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
   const post = calls.find(c => c.label === 'post')
   assert.equal(post.opts.model, 'sonnet')
   assert.match(post.prompt, /Load the `myvoice` skill first/)
-  assert.match(post.prompt, /reviewer's notes to someone/)
+  assert.match(post.prompt, /thanking someone by handle/)
+  assert.match(post.prompt, /"Dropped since last round": one line per item below/)   // a settled item on an update round
+  assert.match(post.prompt, /Dropped since the last round:\n\[/)
   assert.match(post.prompt, /<!-- finding: KEY -->/)
   assert.match(post.prompt, /<!-- settled: a\.go:1: x -->/)
   assert.match(post.prompt, /never APPROVE/)
   assert.match(post.prompt, /in your own words/)
-  assert.doesNotMatch(post.prompt, /human approval|tier medium/)
+  assert.doesNotMatch(post.prompt, /human approval|tier medium|Not checked:/)
   assert.match(calls.find(c => /^finder-0/.test(c.label)).prompt, /Description, verbatim:\n"""\nthe PR body text\n"""/)
   assert.match(calls.find(c => /^verify-/.test(c.label)).prompt, /the PR body text/)
   assert.doesNotMatch(post.prompt, /"Failure:"/)
-  assert.doesNotMatch(post.prompt, /No sentence telling the author what to do with the findings in general[\s\S]*Findings:" one line/)
+  assert.doesNotMatch(post.prompt, /"Findings:" one line per new finding: severity/)   // the form-style body is not the voiced one
   assert.equal(result.voice, 'myvoice')
   assert.ok(calls.filter(c => /^(finder|vote|verify|classify)/.test(c.label)).every(c => !/myvoice/.test(c.prompt)))
   const plain = await run('review', { target: '42', post: true }, responder({ finds: () => ({ findings: [bug('b.go', 'y')] }) }))
