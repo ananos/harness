@@ -14,6 +14,7 @@ setup. This file is the map. Detail lives in `docs/`.
 | `workflows/review-sweep.js` | `/review` over a repo's open PRs by people, with state |
 | `bin/review-watch` | launchd entry point for `/review-sweep`; `templates/review-watch.plist` |
 | `workflows/paper.js` | research plan, parallel section drafts, reviewer lenses on a paper in git; local only |
+| `workflows/address.js` | answer a PR's review threads on its own branch: fix, fold into the commits, gate; push with a lease and reply on push:true |
 | `workflows/ship.js` | push, draft PR, watch CI, triage failures |
 | `workflows/triage.js` | classify open issues from people; report |
 | `templates/workflow.js` | the starting point for `make new-workflow NAME=x` |

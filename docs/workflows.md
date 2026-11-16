@@ -270,6 +270,28 @@ does this bookkeeping for you. A third manual round that still has an
 important finding asks the author to reconsider the approach, the same as
 the fix loop does.
 
+## How /address works
+
+`/address 123` takes the unresolved review threads of a PR, the bot's and
+the people's, and answers them on the PR's own branch rather than in a new
+one. One sonnet reads the PR, its commits and the threads and plans one
+change per thread group, naming the PR commit whose lines it corrects, from
+`git blame`. A thread that asks for a design decision, an interface change
+or a sensitive path is skipped with a reason the author can post. One agent
+per change, in order on the one working tree, makes it and commits it as a
+fixup of that commit, or as a plain fix commit when no PR commit owns the
+lines. Haiku then autosquashes onto the base, checks the tree is unchanged
+and runs the gate named in `gate`.
+
+Without `push:true` that is the end: the branch is folded locally and the
+replies are returned, not sent. With it, which a person sets, haiku pushes
+with a lease on the head the work started from, replies in every thread
+("Done in <sha7>: ..." or "Not changed: ..."), posts one summary review in
+the named `voice`, and rebases the PRs stacked on this one the same way. A
+rebase conflict, a failing gate, a head branch in a fork or a rejected push
+stop before any push and return `needs-human`. The next review round sees
+the push and reports what it dropped.
+
 ## How /review-sweep works
 
 The scheduled form. `/review-sweep owner/repo` lists the open PRs, keeps
