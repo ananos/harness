@@ -187,6 +187,13 @@ const replies = scope.threads.map(t => ({ id: t.id, commentId: t.commentId, path
 const summary = `${made.length} change${made.length === 1 ? '' : 's'} folded into the PR's commits, ${scope.head.slice(0, 7)} to ${fold.head.slice(0, 7)}; ` +
   `${replies.filter(r => r.body.startsWith('Done')).length} of ${replies.length} threads answered with a change`
 
+// The record of the fold, for a caller that releases it later: the replies
+// as data and a short report, beside the branch the caller bundles.
+const record = { repo: scope.repo, pr: TARGET, branch: scope.branch, base: scope.base, from: scope.head, head: fold.head, summary, replies, skipped: skipped.map(c => ({ threads: c.threads, reason: c.reason })) }
+await agent(
+  `Write two files and change nothing else. ~/.claude/harness/reports/address-${TARGET}.replies.json with exactly this JSON:\n${JSON.stringify(record, null, 1)}\n` +
+  `and ~/.claude/harness/reports/address-${TARGET}.md: the summary line, then one bullet per reply as "path:line: body", then the skipped threads with their reasons. Markdown, no emoji.`,
+  { label: 'record', schema: { type: 'object', properties: { written: { type: 'boolean' } }, required: ['written'] }, model: M.fold, effort: 'low' })
 if (!PUSH) {
   log(`local only: ${summary}`)
   return { status: 'folded', pr: TARGET, head: fold.head, from: scope.head, changes: worked, skipped, replies, summary, pushed: false }
