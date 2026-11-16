@@ -39,8 +39,10 @@ function responder(over = {}) {
   assert.equal(modelOf(calls, 'work-A'), 'sonnet')
   assert.equal(modelOf(calls, 'work-B'), 'opus')    // two files: the wider model
   assert.equal(modelOf(calls, 'fold'), 'haiku')
-  assert.match(calls.find(c => c.label === 'work-A').prompt, /git commit --fixup=c1c1c1c/)
+  assert.match(calls.find(c => c.label === 'work-A').prompt, /the plan expected c1c1c1c/)
+  assert.match(calls.find(c => c.label === 'work-A').prompt, /newest PR commit among them/)
   assert.match(calls.find(c => c.label === 'work-B').prompt, /plain fix commit/)
+  assert.match(calls.find(c => c.label === 'fold').prompt, /run the autosquash once more/)
   assert.match(calls.find(c => c.label === 'fold').prompt, /GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash origin\/main/)
   assert.match(calls.find(c => c.label === 'fold').prompt, /git diff --quiet "\$pre" HEAD/)
   for (const c of calls) assert.doesNotMatch(c.prompt, /git push/)

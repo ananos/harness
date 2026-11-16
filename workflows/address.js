@@ -145,7 +145,9 @@ for (const c of todo) {
   const w = await agent(
     `On branch ${scope.branch} of PR #${TARGET}, make this change: ${c.summary}\nFiles: ${c.files.join(', ')}.\n` +
     `It answers these review threads:\n${JSON.stringify(scope.threads.filter(t => c.threads.indexOf(t.id) >= 0).map(t => ({ path: t.path, line: t.line, body: t.body })), null, 1)}\n` +
-    (c.commit ? `Commit it as \`git commit --fixup=${c.commit}\` (the commit it corrects). ` : 'No PR commit owns these lines: commit it as a plain fix commit with a conventional subject. ') +
+    'Then pick the commit to fold into: `git blame` at HEAD the lines you changed; the target is the newest PR commit among them (the one nearest HEAD in the list below), so no later commit rewrites those lines and the fold conflicts' +
+    (c.commit ? `; the plan expected ${c.commit}. ` : '. ') +
+    `Commit it as \`git commit --fixup=<target>\`, or as a plain fix commit with a conventional subject when no PR commit owns the lines.\nPR commits, oldest first:\n${JSON.stringify(scope.commits, null, 1)}\n` +
     'Run the tests for the files you touched. If the change would need a design decision or you cannot confirm it is right, change nothing and say why in note. ' +
     `Return the commit sha and one sentence for the thread. ${RULES}`,
     { phase: 'Work', label: `work-${c.id}`, schema: WORKED, model: wide ? M.wide : M.work })
@@ -161,7 +163,7 @@ phase('Fold')
 const fold = await agent(
   `Fold the fixups on branch ${scope.branch} and check the result; change nothing else.\n` +
   '1. `pre=$(git rev-parse HEAD)`.\n' +
-  (FOLD ? `2. \`GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash origin/${scope.base}\`. If it stops on a conflict, \`git rebase --abort\`, set ok false and conflict to the file and hunk; do not resolve it.\n` +
+  (FOLD ? `2. \`GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash origin/${scope.base}\`. If it stops on a conflict: \`git rebase --abort\`; the fixup involved was aimed at a commit a later PR commit rewrote, so aim it at the newest PR commit that touches its files (\`git log --format='%H %s' origin/${scope.base}..HEAD -- <files>\`, the last PR commit listed) by amending its subject to \`fixup! <that commit's subject>\` (\`git rebase\` with \`--exec\` or a temporary checkout and \`git commit --amend\`, keeping its tree), then run the autosquash once more. If it conflicts again, abort, set ok false and conflict to the file and hunk; do not resolve it.\n` +
           '3. `git diff --quiet "$pre" HEAD` must hold: the tree is the same, only the history changed. If it does not, set ok false.\n' : '2. Leave the commits as they are.\n') +
   (A.gate ? `4. Run \`${A.gate}\`; gatePass is whether it exits 0, gateTail its last 40 lines when it fails.\n` : '4. No gate was named: run the repo\'s quickest test target if there is one, else set gatePass true.\n') +
   `Return the tip sha as head. ${RULES}`,
