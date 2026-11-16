@@ -120,3 +120,16 @@ function responder(over = {}) {
   assert.equal(byLabel(none.calls, /^fold$/).length, 0)
   console.log('ok   address: thread filter, empty and no-change endings')
 }
+
+// 6. a placeholder note is replaced by the plan's summary; the work and fold prompts demand a clean tree
+{
+  const r = responder()
+  const { result, calls } = await run('address', '42', ({ label }) => label === 'work-A' ? { id: 'A', done: true, fixup: 'fA', note: 'x' } : r({ label }))
+  assert.equal(result.status, 'folded')
+  assert.equal(result.replies.find(x => x.id === 't1').body, 'Done in bbbbbbb: fix x')
+  assert.equal(result.replies.find(x => x.id === 't2').body, 'Done in bbbbbbb: did B')
+  assert.match(calls.find(c => c.label === 'work-A').prompt, /`git status --porcelain` must print nothing/)
+  assert.match(calls.find(c => c.label === 'fold').prompt, /0\. `git status --porcelain` must print nothing/)
+  assert.match(calls.find(c => c.label === 'fold').prompt, /commit it as a fixup of the newest PR commit/)
+  console.log('ok   address: a placeholder reply falls back to the plan summary; a dirty tree is committed before the fold')
+}
