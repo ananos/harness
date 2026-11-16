@@ -22,6 +22,7 @@ function responder(over = {}) {
     if (label === 'plan') return o.plan
     if (label.startsWith('work-')) return { id: label.slice(5), done: true, fixup: 'f' + label.slice(5), note: `did ${label.slice(5)}` }
     if (label === 'fold') return o.fold
+    if (label === 'record') return { written: true }
     if (label === 'push') return o.push
     if (label === 'stack') return o.stack
     throw new Error('unexpected ' + label)
@@ -31,8 +32,13 @@ function responder(over = {}) {
 // 1. the default is local: gather, plan, one work agent per change in order, fold; no push, no post
 {
   const { result, calls } = await run('address', '42', responder())
-  assert.deepEqual(calls.map(c => c.label), ['gather', 'plan', 'work-A', 'work-B', 'fold'])
+  assert.deepEqual(calls.map(c => c.label), ['gather', 'plan', 'work-A', 'work-B', 'fold', 'record'])
   assert.equal(result.status, 'folded')
+  const rec = calls.find(c => c.label === 'record').prompt
+  assert.match(rec, /address-42\.replies\.json/)
+  assert.match(rec, /"from": "aaaaaaa111"/)
+  assert.match(rec, /"body": "Done in bbbbbbb: did A"/)
+  assert.equal(modelOf(calls, 'record'), 'haiku')
   assert.equal(result.pushed, false)
   assert.equal(modelOf(calls, 'gather'), 'sonnet')
   assert.equal(modelOf(calls, 'plan'), 'sonnet')
@@ -55,7 +61,7 @@ function responder(over = {}) {
 // 2. push:true pushes with a lease on the starting head, replies with the exact bodies, posts one summary, then rebases the stack
 {
   const { result, calls } = await run('address', { target: 42, push: true, gate: 'make test', voice: 'ananos' }, responder())
-  assert.deepEqual(calls.map(c => c.label), ['gather', 'plan', 'work-A', 'work-B', 'fold', 'push', 'stack'])
+  assert.deepEqual(calls.map(c => c.label), ['gather', 'plan', 'work-A', 'work-B', 'fold', 'record', 'push', 'stack'])
   assert.equal(result.status, 'pushed')
   const push = calls.find(c => c.label === 'push').prompt
   assert.match(push, /git push --force-with-lease=feat\/x:aaaaaaa111 origin HEAD:feat\/x/)
