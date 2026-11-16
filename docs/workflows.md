@@ -280,8 +280,10 @@ change per thread group, naming the PR commit whose lines it corrects, from
 or a sensitive path is skipped with a reason the author can post. One agent
 per change, in order on the one working tree, makes it and commits it as a
 fixup of that commit, or as a plain fix commit when no PR commit owns the
-lines. Haiku then autosquashes onto the base, checks the tree is unchanged
-and runs the gate named in `gate`.
+lines. A change left in the working tree is committed as a fixup before
+the fold, and a reply shorter than a sentence is replaced by the plan's
+summary of the change. Haiku then autosquashes onto the base, checks the
+tree is unchanged and runs the gate named in `gate`.
 
 Without `push:true` that is the end: the branch is folded locally and the
 replies are returned, not sent. With it, which a person sets, haiku pushes

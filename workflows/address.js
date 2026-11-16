@@ -149,9 +149,13 @@ for (const c of todo) {
     (c.commit ? `; the plan expected ${c.commit}. ` : '. ') +
     `Commit it as \`git commit --fixup=<target>\`, or as a plain fix commit with a conventional subject when no PR commit owns the lines.\nPR commits, oldest first:\n${JSON.stringify(scope.commits, null, 1)}\n` +
     'Run the tests for the files you touched. If the change would need a design decision or you cannot confirm it is right, change nothing and say why in note. ' +
-    `Return the commit sha and one sentence for the thread. ${RULES}`,
+    'Before you return, `git status --porcelain` must print nothing and the sha must be `git rev-parse HEAD`: a change left in the working tree is not folded. ' +
+    `Return the commit sha and one sentence for the thread; note is posted there as the reply, so it says what changed and where, never a placeholder. ${RULES}`,
     { phase: 'Work', label: `work-${c.id}`, schema: WORKED, model: wide ? M.wide : M.work })
-  worked.push(Object.assign({ id: c.id, done: false, fixup: '', note: 'no result' }, w || {}, { threads: c.threads, commit: c.commit, summary: c.summary }))
+  const got = Object.assign({ id: c.id, done: false, fixup: '', note: 'no result' }, w || {}, { threads: c.threads, commit: c.commit, summary: c.summary })
+  // A one-word note is a placeholder; the plan's summary of the change replaces it.
+  if (got.done && String(got.note || '').trim().split(/\s+/).length < 2) got.note = c.summary
+  worked.push(got)
 }
 const made = worked.filter(w => w.done && w.fixup)
 log(`${made.length}/${todo.length} changes made`)
@@ -162,6 +166,7 @@ if (!made.length) {
 phase('Fold')
 const fold = await agent(
   `Fold the fixups on branch ${scope.branch} and check the result; change nothing else.\n` +
+  '0. `git status --porcelain` must print nothing. If it does, a change was left uncommitted: `git add -A` and commit it as a fixup of the newest PR commit that touches those files (`git log --format=\'%H %s\' origin/' + scope.base + '..HEAD -- <files>`, the first line), so the fold carries it.\n' +
   '1. `pre=$(git rev-parse HEAD)`.\n' +
   (FOLD ? `2. \`mb=$(git merge-base origin/${scope.base} HEAD)\`, then \`GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash "$mb"\`: the PR stays on the base commit it has, only its own history changes. If it stops on a conflict: \`git rebase --abort\`; the fixup involved was aimed at a commit a later PR commit rewrote, so aim it at the newest PR commit that touches its files (\`git log --format='%H %s' "$mb"..HEAD -- <files>\`, the last PR commit listed) by amending its subject to \`fixup! <that commit's subject>\` (\`git rebase\` with \`--exec\` or a temporary checkout and \`git commit --amend\`, keeping its tree), then run the autosquash once more. If it conflicts again, abort, set ok false and conflict to the file and hunk; do not resolve it.\n` +
           '3. `git diff --quiet "$pre" HEAD` must hold: the tree is the same, only the history changed. If it does not, set ok false.\n' : '2. Leave the commits as they are.\n') +
