@@ -69,11 +69,14 @@ function responder(over = {}) {
   assert.match(sentRec, /"head": "bbbbbbb222"/)
   const push = calls.find(c => c.label === 'push').prompt
   assert.match(push, /git push --force-with-lease=feat\/x:aaaaaaa111 origin HEAD:feat\/x/)
-  assert.match(push, /comments\/<commentId>\/replies/)
+  assert.match(push, /addPullRequestReview\(input:\{pullRequestId/)
+  assert.match(push, /addPullRequestReviewThreadReply/)
+  assert.match(push, /submitPullRequestReview\(input:\{pullRequestReviewId:\$r,event:COMMENT/)
+  assert.match(push, /"threadId": "t1"/)
   assert.match(push, /"body": "Done in bbbbbbb: did A"/)
   assert.match(push, /"body": "Not changed: changes the public API; needs a decision"/)
-  assert.match(push, /event COMMENT/)
-  assert.match(push, /load the `ananos` skill/)
+  assert.match(push, /event:COMMENT/)
+  assert.match(push, /`ananos` skill's voice/)
   assert.doesNotMatch(push, /resolveReviewThread/)
   assert.match(calls.find(c => c.label === 'fold').prompt, /Run `make test`/)
   const stack = calls.find(c => c.label === 'stack').prompt
