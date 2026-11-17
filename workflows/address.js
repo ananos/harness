@@ -211,9 +211,10 @@ phase('Push')
 const pushed = await agent(
   `Push branch ${scope.branch} of PR #${TARGET} and answer its threads.\n` +
   `1. \`git push --force-with-lease=${scope.branch}:${scope.head} origin HEAD:${scope.branch}\`. The lease is the head the work started from; if the push is rejected, stop, set pushed false and error to the message, and post nothing.\n` +
-  (REPLY ? `2. Reply in each thread: \`gh api repos/${scope.repo}/pulls/${TARGET}/comments/<commentId>/replies -f body=<body>\`, with exactly these bodies:\n${JSON.stringify(replies.map(r => ({ commentId: r.commentId, body: r.body })), null, 1)}\n` +
-            `3. Post one review with event COMMENT on PR #${TARGET}: ${VOICE ? `load the \`${VOICE}\` skill and write it in that voice, ` : ''}two or three sentences at most: ${summary}. Name the threads left unchanged, if any, with their reasons. No emoji, no em-dashes.\n` +
-            (RESOLVE ? '4. Resolve each thread you answered with a change: `gh api graphql -f query=\'mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id}}}\' -F id=<id>`.\n' : '')
+  (REPLY ? `2. One review carries every reply and the summary, so the PR gets one timeline entry, not one per thread. Start it pending: \`gh api graphql -f query='mutation($pr:ID!){addPullRequestReview(input:{pullRequestId:$pr}){pullRequestReview{id}}}' -f pr=<the PR's node id, from gh pr view ${TARGET} --json id>\`.\n` +
+            `3. Reply in each thread inside it: \`gh api graphql -f query='mutation($r:ID!,$t:ID!,$b:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewId:$r,pullRequestReviewThreadId:$t,body:$b}){comment{id}}}' -f r=<review id> -f t=<thread id> -f b=<body>\`, with exactly these bodies:\n${JSON.stringify(replies.map(r => ({ threadId: r.id, body: r.body })), null, 1)}\n` +
+            `4. Submit it: \`submitPullRequestReview(input:{pullRequestReviewId:$r,event:COMMENT,body:$b})\` where the body is ${VOICE ? `written in the \`${VOICE}\` skill's voice (load it first), ` : ''}two or three sentences at most: ${summary}. Name the threads left unchanged, if any, with their reasons. No emoji, no em-dashes. The review's url is the summary url.\n` +
+            (RESOLVE ? '5. Resolve each thread you answered with a change: `gh api graphql -f query=\'mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id}}}\' -F id=<id>`.\n' : '')
           : '2. Post nothing.\n') +
   'Return the pushed head, the number of replies sent and the summary review url.',
   { label: 'push', schema: PUSHED, model: M.push, effort: 'low' })
