@@ -289,7 +289,8 @@ Without `push:true` that is the end: the branch is folded locally and the
 replies are returned, not sent. With it, which a person sets, haiku pushes
 with a lease on the head the work started from, replies in every thread
 ("Done in <sha7>: ..." or "Not changed: ..."), posts one summary review in
-the named `voice`, and rebases the PRs stacked on this one the same way. A
+the named `voice`, rewrites the replies record with the pushed head and the
+summary's url, and rebases the PRs stacked on this one the same way. A
 rebase conflict, a failing gate, a head branch in a fork or a rejected push
 stop before any push and return `needs-human`. The next review round sees
 the push and reports what it dropped.
