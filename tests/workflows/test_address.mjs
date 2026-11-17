@@ -22,7 +22,7 @@ function responder(over = {}) {
     if (label === 'plan') return o.plan
     if (label.startsWith('work-')) return { id: label.slice(5), done: true, fixup: 'f' + label.slice(5), note: `did ${label.slice(5)}` }
     if (label === 'fold') return o.fold
-    if (label === 'record') return { written: true }
+    if (label === 'record' || label === 'record-pushed') return { written: true }
     if (label === 'push') return o.push
     if (label === 'stack') return o.stack
     throw new Error('unexpected ' + label)
@@ -61,8 +61,12 @@ function responder(over = {}) {
 // 2. push:true pushes with a lease on the starting head, replies with the exact bodies, posts one summary, then rebases the stack
 {
   const { result, calls } = await run('address', { target: 42, push: true, gate: 'make test', voice: 'ananos' }, responder())
-  assert.deepEqual(calls.map(c => c.label), ['gather', 'plan', 'work-A', 'work-B', 'fold', 'record', 'push', 'stack'])
+  assert.deepEqual(calls.map(c => c.label), ['gather', 'plan', 'work-A', 'work-B', 'fold', 'record', 'push', 'stack', 'record-pushed'])
   assert.equal(result.status, 'pushed')
+  const sentRec = calls.find(c => c.label === 'record-pushed').prompt
+  assert.match(sentRec, /"pushed": true/)
+  assert.match(sentRec, /"summaryUrl": "https:\/\/x\/r\/1"/)
+  assert.match(sentRec, /"head": "bbbbbbb222"/)
   const push = calls.find(c => c.label === 'push').prompt
   assert.match(push, /git push --force-with-lease=feat\/x:aaaaaaa111 origin HEAD:feat\/x/)
   assert.match(push, /comments\/<commentId>\/replies/)
