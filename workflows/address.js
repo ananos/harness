@@ -233,6 +233,13 @@ if (STACK) {
   if (stack.rebased.length || stack.failed.length) log(`stack: ${stack.rebased.length} rebased, ${stack.failed.length} need a person`)
 }
 
+// The record again, now with the push: a caller that kept the replies as
+// data can tell they were sent, and by which summary.
+const sent = { ...record, pushed: true, head: pushed.head, summaryUrl: pushed.summaryUrl || '', sent: pushed.replies, stack }
+await agent(
+  `Overwrite ~/.claude/harness/reports/address-${TARGET}.replies.json with exactly this JSON and change nothing else:\n${JSON.stringify(sent, null, 1)}`,
+  { label: 'record-pushed', schema: { type: 'object', properties: { written: { type: 'boolean' } }, required: ['written'] }, model: M.fold, effort: 'low' })
+
 return {
   status: stack.failed.length ? 'pushed-stack-needs-human' : 'pushed',
   pr: TARGET, head: pushed.head, from: scope.head, changes: worked, skipped, replies, summary,
