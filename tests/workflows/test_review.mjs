@@ -48,6 +48,7 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
   const { result, calls } = await run('review', '42', responder({}))
   assert.equal(result.status, 'clean') // nothing to fix is clean; the person's approval is a separate gate
   assert.equal(result.summary, '0 open findings: nothing to fix')
+  assert.match(calls.find(c => c.label === 'report').prompt, /the input the poster and the run history read/)
   assert.equal(result.humanApprovals, 1)
   assert.equal(result.needsPerson, true)
   assert.equal(byLabel(calls, /^verify-/).length, 1)
