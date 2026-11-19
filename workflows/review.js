@@ -38,6 +38,15 @@ const M = Object.assign({
   classify: 'sonnet', merge: 'haiku', voter: 'sonnet', fix: 'sonnet', escalate: 'opus', report: 'haiku', post: VOICE ? 'sonnet' : 'haiku',
 }, A.models || {})
 const DEPTH = A.depth || 'standard'
+// An agent that returns nothing (a schema miss, an API error, a timeout) is
+// asked once more; one still empty is counted, and the count heads the
+// report, so a review with missing reviewers never reads as a clean one.
+const empty = []
+const once = (prompt, opts) => agent(prompt, opts).then(r => r != null ? r :
+  agent(prompt, Object.assign({}, opts, { label: `${opts.label}-retry` })).then(again => {
+    if (again == null) empty.push(opts.label)
+    return again
+  }))
 const SHAPE = { quick: { finders: 2, voters: 1 }, standard: { finders: 4, voters: 3 }, deep: { finders: 6, voters: 5 } }[DEPTH]
 if (!SHAPE) throw new Error(`depth must be quick, standard or deep, not ${DEPTH}`)
 const ROUND_CAP = A.roundCap || 3
@@ -226,14 +235,14 @@ const briefFor = (since, head) =>
 // whether a person is needed anyway.
 const brief0 = briefFor(A.since, scope.head)
 const [tier, second] = await parallel([
-  () => agent(
+  () => once(
     `${brief0}\nSet the risk tier of this change from the change alone, never from who wrote it.\n` +
     '- low: docs, copy, internal-only features, additive changes behind a flag.\n' +
     '- medium: ordinary product changes, and sensitive areas such as caching, the updater, system prompts.\n' +
     '- high: auth, billing, tokens and secrets, release and install paths, CI workflow files, and anything the repo marks as always-two-person.\n' +
     `Touched sensitive paths: ${JSON.stringify(scope.sensitive)}. Touched CI files: ${JSON.stringify(scope.ciFiles)}. Read the diff; do not change files.`,
     { label: 'tier', schema: TIER, model: M.tier, effort: 'low' }),
-  () => agent(
+  () => once(
     `${brief0}\nIndependently of any risk tier: does this change need a person to read it regardless of what automated review says? ` +
     'Yes when it sets a pattern others will copy, changes an interface other code depends on, touches a path the repo marks sensitive, or the stated test plan could not catch the ways it fails. Read the diff; do not change files.',
     { label: 'second-opinion', schema: SECOND, model: M.second, effort: 'low' }),
@@ -271,15 +280,15 @@ const rank = { important: 0, nit: 1, 'pre-existing': 2 }
 async function pass(round, since, head, posted) {
   const brief = briefFor(since, head)
   const tag = `r${round}`
-  const finders = ANGLES.slice(0, SHAPE.finders).map((angle, i) => () => agent(
+  const finders = ANGLES.slice(0, SHAPE.finders).map((angle, i) => () => once(
     `${brief}\nHunt for bugs in this change from one angle:\n${angle}\n${HOLD_FIND}`,
     { phase: 'Find', label: `finder-${i}-${tag}`, schema: FINDINGS, model: M.finder }))
-  const securityLane = () => agent(
+  const securityLane = () => once(
     `${brief}\nSecurity review of this change: injection, path and symlink traversal, authn and authz gaps, secrets in code or logs, ` +
     'unsafe deserialization, SSRF, TOCTOU, privilege and token scope widening, unsafe defaults, supply-chain changes (new dependencies, pins, workflow permissions). ' +
     `Set kind=security on every finding. ${HOLD_FIND}`,
     { phase: 'Find', label: `security-${tag}`, schema: FINDINGS, model: M.security })
-  const verifier = () => agent(
+  const verifier = () => once(
     `${brief}\nCheck the PR against what it says, from the code it describes; the description is quoted above. ` +
     'For each claim the description or a changed comment makes about code (what a query excludes, what a caller does, what a test covers, why a reorder is safe), open that code and say whether it holds, with the file:line you read. ' +
     'Name the test that covers each changed behaviour, or list it under untested. Check that the description mentions every package the diff touches. ' +
@@ -299,7 +308,7 @@ async function pass(round, since, head, posted) {
 
   let merged = { findings: [], droppedAsRepeat: 0 }
   if (kept.length) {
-    merged = await agent(
+    merged = await once(
       'Merge duplicate findings from independent reviewers into one list. Two findings are the same when they describe the same defect, ' +
       'even if the line differs by a few or the words differ. Keep the clearest summary and the strongest evidence; set reports to how many reported it.\n' +
       (posted.length ? `Drop any finding already posted in an earlier round, in these or other words (count them in droppedAsRepeat):\n${JSON.stringify(posted, null, 1)}\n` : '') +
@@ -309,7 +318,7 @@ async function pass(round, since, head, posted) {
   log(`round ${round}: ${found.length} raw, ${found.length - kept.length} non-bug dropped, ${merged.droppedAsRepeat} repeats dropped, ${merged.findings.length} to vote on`)
 
   const voted = await pipeline(merged.findings,
-    (f, _, i) => parallel(LENSES.slice(0, SHAPE.voters).map(l => () => agent(
+    (f, _, i) => parallel(LENSES.slice(0, SHAPE.voters).map(l => () => once(
       `${brief}\nAn independent reviewer claims this defect:\n${key(f)}\n` +
       `Scenario: ${f.scenario}\nEvidence:\n${f.evidence}\n\n${l.prompt} Also say whether you would block the merge on this alone. Do not change files.`,
       { phase: 'Vote', label: `vote-${i}-${l.name}-${tag}`, schema: VOTE, model: M.voter, effort: 'medium' })))
@@ -350,7 +359,7 @@ const posted = (A.posted || []).slice()
 const stillOpen = []
 const settled = []
 if (prior.length) {
-  const cl = await agent(
+  const cl = await once(
     `${briefFor(since, head)}\nClassify every earlier finding below against the current head, before anything else. ` +
     (since && !rebased ? `Run \`git diff ${since}...${head}\` first to see what changed since it was raised. ` : '') +
     'fixed: the defect is gone, cite the current line that fixes it (a fixed with no line is open). open: it still stands, cite the current line where it stands. gone: the code it was about no longer exists. ' +
@@ -429,6 +438,7 @@ const summary = `${open.length} open finding${open.length === 1 ? '' : 's'}` +
   (settled.length ? `, ${settled.length} settled` : '') +
   (fixed.length ? `, ${fixed.length} fixed by the agent` : '') +
   (forPerson.length ? `, ${forPerson.length} left for a person` : '')
+  + (empty.length ? `; ${empty.length} reviewer agent${empty.length === 1 ? '' : 's'} returned nothing after a retry (${empty.join(', ')})` : '')
 // A review whose findings are all nits is clean. Human approvals are a
 // separate gate, reported beside it, never folded into the status.
 const clean = important.length === 0 && openPrior.length === 0 && forPerson.length === 0 && lastGate !== false
@@ -568,4 +578,5 @@ return {
   draft: DRAFT && postResult ? postResult.draft || '' : '',
   postedKeys: posted.concat(open.map(key)),
   voice: VOICE,
+  emptyAgents: empty,
 }

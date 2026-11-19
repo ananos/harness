@@ -15,7 +15,8 @@ const EMPTY_VERIFY = { verified: [], contradicted: [], untested: [], checks: [],
 function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, finds = () => ({ findings: [] }),
   security = () => ({ findings: [] }), vote = () => true, fix = null, posted = { posted: true, url: 'u' },
   verify = () => EMPTY_VERIFY, classify = items => items.map(x => ({ key: x.key, status: 'fixed', file: x.file, line: 9, note: 'n' })) }) {
-  return ({ label, prompt }) => {
+  return ({ label: raw, prompt }) => {
+    const label = raw.replace(/-retry$/, '')
     if (label === 'scope') return sc
     if (label.startsWith('verify-')) return verify(roundOf(label))
     if (label === 'classify') return { items: classify(JSON.parse(prompt.slice(prompt.indexOf('Earlier findings:\n') + 18))) }
@@ -383,4 +384,24 @@ function responder({ scope: sc = scope, tier = 'medium', needsPerson = false, fi
 {
   await assert.rejects(run('review', { target: '42', depth: 'max' }, responder({})), /depth must be/)
   console.log('ok   review: rejects an unknown depth')
+}
+
+// 12. an empty agent is asked once more; one still empty is counted in the summary
+{
+  const tries = {}
+  const base = responder({ finds: (i, r) => ({ findings: i === 1 ? [bug('a.go', 'x')] : [] }) })
+  const flaky = c => {
+    tries[c.label] = (tries[c.label] || 0) + 1
+    if (c.label === 'finder-1-r1') return null                   // empty once, answers on the retry
+    if (/^security-r1(-retry)?$/.test(c.label)) return null       // empty both times
+    return base(c)
+  }
+  const { result, calls } = await run('review', '42', flaky)
+  assert.deepEqual(byLabel(calls, /^finder-1-r1/).map(c => c.label), ['finder-1-r1', 'finder-1-r1-retry'])
+  assert.equal(byLabel(calls, /^finder-0-r1/).length, 1)
+  assert.equal(result.findings.length, 1)                          // the retried finder's finding reached the vote
+  assert.deepEqual(result.emptyAgents, ['security-r1'])
+  assert.match(result.summary, /; 1 reviewer agent returned nothing after a retry \(security-r1\)$/)
+  assert.match(calls.find(c => c.label === 'report').prompt, /1 reviewer agent returned nothing after a retry/)
+  console.log('ok   review: retries an empty agent once and counts the ones still empty')
 }
