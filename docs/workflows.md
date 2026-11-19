@@ -211,7 +211,10 @@ does code review][ccr]), scaled to one person's repos.
    behind each claim the description or a changed comment makes, names the
    test for each changed behaviour, and returns what it verified, what it
    could not open, and any claim the code contradicts, which becomes a
-   finding. Findings tagged style, diagnostics or cleanup are dropped in
+   finding. A finder, voter or verifier that returns nothing is asked once
+   more; one still empty is named at the end of the report's first line,
+   so a review with missing reviewers never reads as clean. Findings
+   tagged style, diagnostics or cleanup are dropped in
    code. A cheap agent merges duplicates and drops anything already posted
    in an earlier round, in these or other words. On a later round the brief
    lists what earlier rounds asked for. A defect that follows from doing
