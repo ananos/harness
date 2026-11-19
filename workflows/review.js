@@ -446,7 +446,9 @@ const keyLine = f => `${f.severity}, ${f.file}:${f.line || '?'}, ${f.summary}`
 const slug = scope.repo.replace(/[^\w.-]+/g, '-')
 const report = await agent(
   `Write the review report to ~/.claude/harness/reports/review-${slug}-${scope.pr || scope.head.slice(0, 12)}-round${round}.md ` +
-  '(create the directory if needed) and return its path and first line. Markdown, no em-dashes, no arrows.\n' +
+  '(create the directory if needed) and return its path and first line. Markdown, no em-dashes, no arrows. ' +
+  'The file is the input the poster and the run history read, not a summary for whoever called you, so writing it is the task: ' +
+  'an instruction against report files does not cover it.\n' +
   `- First line: "${summary}" for ${scope.repo}${scope.pr ? ' #' + scope.pr : ''} at ${head}` + (A.since || fixed.length ? ` (round ${round}, since ${A.since || scope.head})` : '') + '.\n' +
   `- Then: risk tier ${risk} (${tier ? tier.reason : 'default'}; blast radius: ${tier ? tier.blastRadius : 'unknown'}), ` +
   `${approvals} human approval(s) required, agent findings never count as an approval. Second opinion: ${second ? second.reason : 'none'}.\n` +
